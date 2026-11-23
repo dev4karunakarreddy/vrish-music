@@ -1,8 +1,9 @@
 package app.noir.music
 
-import android.content.Intent
 import android.content.Context
+import android.content.Intent
 import android.media.MediaMetadataRetriever
+import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
@@ -12,8 +13,12 @@ import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
+import com.facebook.react.bridge.ReadableMap
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
+import java.io.FileOutputStream
+import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.util.concurrent.Executors
 
@@ -82,6 +87,9 @@ class VrishMetadataModule(private val context: ReactApplicationContext) : ReactC
         result.putString("album", retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM))
         result.putString("albumArtist", retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST))
         result.putString("composer", retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_COMPOSER))
+        result.putString("genre", retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_GENRE))
+        val year = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_YEAR) ?: retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DATE)
+        result.putString("year", year)
         result.putDouble("durationMs", retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toDoubleOrNull() ?: 0.0)
         val art = retriever.embeddedPicture
         if (art != null && art.isNotEmpty()) {
@@ -95,6 +103,312 @@ class VrishMetadataModule(private val context: ReactApplicationContext) : ReactC
         promise.reject("METADATA_ERROR", "Could not read audio metadata", e)
       } finally {
         retriever.release()
+      }
+    }
+  }
+
+  private fun toSynchsafe(size: Int): ByteArray {
+    return byteArrayOf(
+      ((size shr 21) and 0x7F).toByte(),
+      ((size shr 14) and 0x7F).toByte(),
+      ((size shr 7) and 0x7F).toByte(),
+      (size and 0x7F).toByte()
+    )
+  }
+
+  private fun fromSynchsafe(b: ByteArray, offset: Int = 0): Int {
+    return ((b[offset].toInt() and 0x7F) shl 21) or
+           ((b[offset + 1].toInt() and 0x7F) shl 14) or
+           ((b[offset + 2].toInt() and 0x7F) shl 7) or
+           (b[offset + 3].toInt() and 0x7F)
+  }
+
+  private fun toInt32BE(value: Int): ByteArray {
+    return byteArrayOf(
+      ((value shr 24) and 0xFF).toByte(),
+      ((value shr 16) and 0xFF).toByte(),
+      ((value shr 8) and 0xFF).toByte(),
+      (value and 0xFF).toByte()
+    )
+  }
+
+  private fun buildTextFrame(frameId: String, text: String): ByteArray {
+    val textBytes = text.toByteArray(StandardCharsets.UTF_16)
+    val body = ByteArrayOutputStream()
+    body.write(0x01) // Encoding: UTF-16 with BOM
+    body.write(textBytes)
+    val bodyBytes = body.toByteArray()
+
+    val frame = ByteArrayOutputStream()
+    frame.write(frameId.toByteArray(StandardCharsets.US_ASCII))
+    frame.write(toInt32BE(bodyBytes.size))
+    frame.write(0x00) // Flags byte 1
+    frame.write(0x00) // Flags byte 2
+    frame.write(bodyBytes)
+    return frame.toByteArray()
+  }
+
+  private fun buildApicFrame(imageBytes: ByteArray, mimeType: String): ByteArray {
+    val body = ByteArrayOutputStream()
+    body.write(0x00) // ISO-8859-1 for MIME and description
+    body.write(mimeType.toByteArray(StandardCharsets.ISO_8859_1))
+    body.write(0x00) // Null terminator for MIME
+    body.write(0x03) // Picture type: Cover (front)
+    body.write(0x00) // Empty description null terminator
+    body.write(imageBytes)
+    val bodyBytes = body.toByteArray()
+
+    val frame = ByteArrayOutputStream()
+    frame.write("APIC".toByteArray(StandardCharsets.US_ASCII))
+    frame.write(toInt32BE(bodyBytes.size))
+    frame.write(0x00) // Flags byte 1
+    frame.write(0x00) // Flags byte 2
+    frame.write(bodyBytes)
+    return frame.toByteArray()
+  }
+
+  @ReactMethod
+  fun writeMetadata(uri: String, id: String, tags: ReadableMap, promise: Promise) {
+    executor.execute {
+      try {
+        val parsed = Uri.parse(uri)
+        fun openInStream() = if (parsed.scheme == "content") {
+          context.contentResolver.openInputStream(parsed) ?: throw Exception("Cannot open stream for content URI")
+        } else {
+          FileInputStream(parsed.path ?: uri)
+        }
+
+        // 1. Read existing ID3 header to preserve unedited frames and find start of audio stream
+        var audioOffset = 0L
+        var versionMajor = 3
+        val preservedFrames = ByteArrayOutputStream()
+        val excludedFrameIds = setOf("TIT2", "TPE1", "TALB", "TPE2", "TCOM", "TYER", "TDRC", "TCON", "APIC")
+
+        openInStream().use { input ->
+          val headerBuf = ByteArray(10)
+          val readHeader = input.read(headerBuf)
+          if (readHeader == 10 && headerBuf[0] == 0x49.toByte() && headerBuf[1] == 0x44.toByte() && headerBuf[2] == 0x33.toByte()) {
+            versionMajor = headerBuf[3].toInt() and 0xFF
+            val tagSize = fromSynchsafe(headerBuf, 6)
+            audioOffset = 10L + tagSize
+
+            if (tagSize in 1..52428800) { // Up to 50MB
+              val tagData = ByteArray(tagSize)
+              var readBytes = 0
+              while (readBytes < tagSize) {
+                val r = input.read(tagData, readBytes, tagSize - readBytes)
+                if (r < 0) break
+                readBytes += r
+              }
+
+              var pos = 0
+              val isV23 = (versionMajor == 3)
+              while (pos + 10 <= readBytes) {
+                val fId = String(tagData, pos, 4, StandardCharsets.US_ASCII)
+                if (!fId.all { it in 'A'..'Z' || it in '0'..'9' }) {
+                  break // Padding reached
+                }
+                val fSize = if (isV23) {
+                  ((tagData[pos + 4].toInt() and 0xFF) shl 24) or
+                  ((tagData[pos + 5].toInt() and 0xFF) shl 16) or
+                  ((tagData[pos + 6].toInt() and 0xFF) shl 8) or
+                  (tagData[pos + 7].toInt() and 0xFF)
+                } else {
+                  fromSynchsafe(tagData, pos + 4)
+                }
+                if (fSize <= 0 || pos + 10 + fSize > readBytes) break
+                if (!excludedFrameIds.contains(fId)) {
+                  preservedFrames.write(tagData, pos, 10 + fSize)
+                }
+                pos += 10 + fSize
+              }
+            }
+          }
+        }
+
+        // 2. Read new artwork if provided
+        val artworkUri = if (tags.hasKey("artworkUri")) tags.getString("artworkUri") else null
+        val removeArtwork = if (tags.hasKey("removeArtwork")) tags.getBoolean("removeArtwork") else false
+        val imageBytes = if (!artworkUri.isNullOrEmpty() && !removeArtwork) {
+          try {
+            val artParsed = Uri.parse(artworkUri)
+            val artStream = if (artParsed.scheme == "content") {
+              context.contentResolver.openInputStream(artParsed)
+            } else {
+              FileInputStream(artParsed.path ?: artworkUri)
+            }
+            artStream?.use { it.readBytes() }
+          } catch (e: Exception) {
+            null
+          }
+        } else null
+
+        // 3. Assemble all frames
+        val allFrames = ByteArrayOutputStream()
+        allFrames.write(preservedFrames.toByteArray())
+
+        val title = if (tags.hasKey("title")) tags.getString("title")?.trim() else null
+        if (!title.isNullOrEmpty()) allFrames.write(buildTextFrame("TIT2", title))
+
+        val artist = if (tags.hasKey("artist")) tags.getString("artist")?.trim() else null
+        if (!artist.isNullOrEmpty()) allFrames.write(buildTextFrame("TPE1", artist))
+
+        val album = if (tags.hasKey("album")) tags.getString("album")?.trim() else null
+        if (!album.isNullOrEmpty()) allFrames.write(buildTextFrame("TALB", album))
+
+        val albumArtist = if (tags.hasKey("albumArtist")) tags.getString("albumArtist")?.trim() else null
+        if (!albumArtist.isNullOrEmpty()) allFrames.write(buildTextFrame("TPE2", albumArtist))
+
+        val composer = if (tags.hasKey("composer")) tags.getString("composer")?.trim() else null
+        if (!composer.isNullOrEmpty()) allFrames.write(buildTextFrame("TCOM", composer))
+
+        val year = if (tags.hasKey("year")) tags.getString("year")?.trim() else null
+        if (!year.isNullOrEmpty()) {
+          allFrames.write(buildTextFrame("TYER", year))
+          allFrames.write(buildTextFrame("TDRC", year))
+        }
+
+        val genre = if (tags.hasKey("genre")) tags.getString("genre")?.trim() else null
+        if (!genre.isNullOrEmpty()) allFrames.write(buildTextFrame("TCON", genre))
+
+        if (imageBytes != null && imageBytes.isNotEmpty()) {
+          val mimeType = when {
+            imageBytes.size > 3 && imageBytes[0] == 0xFF.toByte() && imageBytes[1] == 0xD8.toByte() && imageBytes[2] == 0xFF.toByte() -> "image/jpeg"
+            imageBytes.size > 8 && imageBytes[0] == 0x89.toByte() && imageBytes[1] == 0x50.toByte() && imageBytes[2] == 0x4E.toByte() -> "image/png"
+            else -> "image/jpeg"
+          }
+          allFrames.write(buildApicFrame(imageBytes, mimeType))
+        }
+
+        // 4. Build ID3v2.3 header
+        val framesBytes = allFrames.toByteArray()
+        val header = ByteArrayOutputStream()
+        header.write("ID3".toByteArray(StandardCharsets.US_ASCII))
+        header.write(byteArrayOf(0x03, 0x00)) // ID3v2.3.0
+        header.write(0x00) // Flags
+        header.write(toSynchsafe(framesBytes.size))
+
+        // 5. Write new file to temp cache file
+        val tempFile = File(context.cacheDir, "vrish_tagged_${System.currentTimeMillis()}.tmp")
+        FileOutputStream(tempFile).use { outStream ->
+          outStream.write(header.toByteArray())
+          outStream.write(framesBytes)
+
+          openInStream().use { inStream ->
+            var skipped = 0L
+            while (skipped < audioOffset) {
+              val n = inStream.skip(audioOffset - skipped)
+              if (n <= 0) break
+              skipped += n
+            }
+            val buf = ByteArray(65536)
+            while (true) {
+              val count = inStream.read(buf)
+              if (count < 0) break
+              outStream.write(buf, 0, count)
+            }
+          }
+          outStream.flush()
+        }
+
+        // 6. Overwrite original file with tagged temp file
+        var writeSuccess = false
+        var finalUri = uri
+
+        if (parsed.scheme != "content") {
+          val filePath = parsed.path ?: uri
+          val destFile = File(filePath)
+          try {
+            if (destFile.exists() && destFile.canWrite()) {
+              tempFile.copyTo(destFile, overwrite = true)
+              writeSuccess = true
+            }
+          } catch (e: Exception) {}
+        }
+
+        if (!writeSuccess && parsed.scheme == "content") {
+          try {
+            context.contentResolver.openOutputStream(parsed, "wt")?.use { outStream ->
+              FileInputStream(tempFile).use { inStream ->
+                inStream.copyTo(outStream)
+              }
+              outStream.flush()
+              writeSuccess = true
+            }
+          } catch (e: Exception) {}
+        }
+
+        // Fallback: If external location was strictly read-only, copy to app's Music folder
+        if (!writeSuccess) {
+          try {
+            val musicDir = File(context.getExternalFilesDir(null), "Music").apply { mkdirs() }
+            val origName = File(parsed.path ?: uri).name.ifEmpty { "song_${System.currentTimeMillis()}.mp3" }
+            val safeName = if (origName.endsWith(".mp3", ignoreCase = true)) origName else "$origName.mp3"
+            val dest = File(musicDir, safeName)
+            tempFile.copyTo(dest, overwrite = true)
+            finalUri = Uri.fromFile(dest).toString()
+            writeSuccess = true
+          } catch (e: Exception) {
+            val dest = File(context.filesDir, "song_${System.currentTimeMillis()}.mp3")
+            tempFile.copyTo(dest, overwrite = true)
+            finalUri = Uri.fromFile(dest).toString()
+            writeSuccess = true
+          }
+        }
+
+        tempFile.delete()
+
+        // 7. Update internal artwork cache
+        if (imageBytes != null && imageBytes.isNotEmpty()) {
+          val artworkDir = File(context.filesDir, "artwork").apply { mkdirs() }
+          File(artworkDir, "$id.art").writeBytes(imageBytes)
+        } else if (removeArtwork) {
+          val artworkFile = File(File(context.filesDir, "artwork"), "$id.art")
+          if (artworkFile.exists()) artworkFile.delete()
+        }
+
+        // 8. Refresh Android MediaScanner
+        try {
+          val scanPath = if (parsed.scheme == "file") parsed.path else if (!finalUri.startsWith("content://")) Uri.parse(finalUri).path else null
+          if (scanPath != null) {
+            MediaScannerConnection.scanFile(context, arrayOf(scanPath), arrayOf("audio/mpeg"), null)
+          }
+        } catch (e: Exception) {}
+
+        val result = Arguments.createMap()
+        result.putBoolean("success", writeSuccess)
+        result.putString("uri", finalUri)
+        promise.resolve(result)
+      } catch (e: Exception) {
+        promise.reject("WRITE_METADATA_ERROR", "Failed to write tags to audio file", e)
+      }
+    }
+  }
+
+  @ReactMethod
+  fun deleteTrackFile(uri: String, promise: Promise) {
+    executor.execute {
+      try {
+        val parsed = Uri.parse(uri)
+        var deleted = false
+        if (parsed.scheme == "content") {
+          try {
+            val count = context.contentResolver.delete(parsed, null, null)
+            deleted = count > 0
+          } catch (e: Exception) {
+            val p = parsed.path
+            if (p != null) {
+              val f = File(p)
+              if (f.exists()) deleted = f.delete()
+            }
+          }
+        } else {
+          val f = File(parsed.path ?: uri)
+          deleted = if (f.exists()) f.delete() else true
+        }
+        promise.resolve(deleted)
+      } catch (e: Exception) {
+        promise.reject("DELETE_ERROR", "Could not delete audio file", e)
       }
     }
   }

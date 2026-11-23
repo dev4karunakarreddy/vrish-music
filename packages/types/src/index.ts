@@ -13,6 +13,9 @@ export interface Track {
   addedAt: number;
   favorite: boolean;
   playCount: number;
+  userEdited?: boolean;
+  year?: string;
+  genre?: string;
 }
 
 export interface Playlist {

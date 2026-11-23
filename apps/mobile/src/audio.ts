@@ -6,7 +6,7 @@ import type { Track, RepeatMode } from '@noir/types';
 import { incrementPlayCount, saveSession } from './db';
 import { useMusic } from './store';
 
-import { checkFileExists } from './library';
+import { checkFileExists } from './fileCheck';
 
 let playlist: ReturnType<typeof createAudioPlaylist> | null = null;
 let subscription: { remove: () => void } | null = null;
@@ -442,3 +442,35 @@ export function clearUpcomingQueue(): void {
   buildPlaylist(activeQueue, currentIndex, currentPos);
   useMusic.getState().showToast('Upcoming queue cleared');
 }
+
+export function stopPlayback(): void {
+  releasePlaylist();
+  useMusic.getState().setCurrent(null);
+  useMusic.getState().setQueue([]);
+  useMusic.getState().setPlaying(false);
+  useMusic.getState().setProgress(0, 0);
+}
+
+export function handleTrackDeleted(trackId: string): void {
+  const s = useMusic.getState();
+  const queueIndex = activeQueue.findIndex((t) => t.id === trackId);
+  if (queueIndex >= 0) {
+    if (activeQueue.length <= 1) {
+      stopPlayback();
+      return;
+    }
+    const isCurrent = s.currentId === trackId;
+    if (isCurrent) {
+      void skip(1);
+    }
+    try {
+      playlist?.remove(queueIndex);
+    } catch {}
+    activeQueue.splice(queueIndex, 1);
+    useMusic.getState().setQueue(activeQueue.map((t) => t.id));
+    persistCurrentSession();
+  } else if (s.currentId === trackId) {
+    stopPlayback();
+  }
+}
+

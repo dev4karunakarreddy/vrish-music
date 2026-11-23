@@ -7,6 +7,7 @@ import {
   deleteTrack,
   findTrackByFingerprint,
   findTrackBySource,
+  findTrackByUri,
   getSetting,
   getTracks,
   saveTrack,
@@ -14,14 +15,34 @@ import {
   saveTrackSource,
   setSetting,
 } from './db';
-import { fingerprintFile, readTrackMetadata } from './metadata';
+import { deleteAudioFile, fingerprintFile, readTrackMetadata } from './metadata';
+import { handleTrackDeleted } from './audio';
 import { useMusic } from './store';
 
 const supported = /\.(mp3|m4a|aac|wav|flac|ogg|opus)$/i;
 export const MIN_TRACK_DURATION_MS = 33_000;
 let importing = false;
 
-export { checkFileExists, invalidateFileCache } from './fileCheck';
+import { checkFileExists, invalidateFileCache } from './fileCheck';
+export { checkFileExists, invalidateFileCache };
+
+function extractFolderAlbum(uri: string): string | null {
+  try {
+    const decoded = decodeURIComponent(uri);
+    const parts = decoded.split(/[\/\\]+/).filter(Boolean);
+    if (parts.length >= 2) {
+      const parent = parts[parts.length - 2].trim();
+      const lower = parent.toLowerCase();
+      if (
+        lower &&
+        !['download', 'downloads', 'music', 'audio', 'files', '0', 'emulated', 'storage', 'media', 'raw'].includes(lower)
+      ) {
+        return parent.replace(/[_-]+/g, ' ').trim();
+      }
+    }
+  } catch {}
+  return null;
+}
 
 async function importAudioSource(
   uri: string,
@@ -39,28 +60,23 @@ async function importAudioSource(
     } catch {}
   }
 
-  const known = findTrackBySource(uri);
-  if (known) return 'duplicate';
+  // Exact URI already in library - skip re-importing the identical file
+  const existing = findTrackByUri(uri);
+  if (existing) return 'duplicate';
 
   const fingerprint = await fingerprintFile(uri);
-  if (fingerprint) {
-    const duplicate = findTrackByFingerprint(fingerprint);
-    if (duplicate) {
-      saveTrackSource(duplicate, uri);
-      return 'duplicate';
-    }
-  }
 
   const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
   // DIRECT IMPORT: Do not copy the audio file! Keep the original path directly to save storage space.
   const title = name.replace(supported, '').replace(/[_-]+/g, ' ').trim();
+  const folderAlbum = extractFolderAlbum(uri);
   const draft: Track = {
     id,
     uri,
     title: title || 'Untitled',
     artist: 'Unknown Artist',
-    album: 'Imported Music',
+    album: folderAlbum || 'Imported Music',
     durationMs: durationHintMs,
     addedAt,
     favorite: false,
@@ -70,6 +86,11 @@ async function importAudioSource(
   const track = await readTrackMetadata(draft);
   if (track.durationMs > 0 && track.durationMs <= MIN_TRACK_DURATION_MS) {
     return 'short';
+  }
+
+  // If metadata returned generic album or nothing, but parent folder is meaningful, retain folder album
+  if ((!track.album || ['', 'imported music', 'unknown album'].includes(track.album.trim().toLowerCase())) && folderAlbum) {
+    track.album = folderAlbum;
   }
 
   saveTrack(track);
@@ -159,4 +180,57 @@ export function removeShortImportedTracks(): number {
   }
   if (shortTracks.length) useMusic.getState().refresh();
   return shortTracks.length;
+}
+
+/**
+ * Removes a track from library, queue, database, and optionally deletes the physical audio file from device storage.
+ */
+export async function removeTrack(track: Track, deleteFileFromStorage = false): Promise<boolean> {
+  try {
+    // 1. Advance playback if currently active or remove from active queue
+    handleTrackDeleted(track.id);
+
+    // 2. Remove custom artwork file if present
+    if (track.artworkUri && track.artworkUri.includes('/artwork/')) {
+      try {
+        if (!track.artworkUri.startsWith('content://')) {
+          const art = new File(track.artworkUri);
+          if (art.exists) art.delete();
+        }
+      } catch {}
+    }
+
+    // 3. Delete physical file if requested
+    if (deleteFileFromStorage) {
+      let deleted = false;
+      try {
+        deleted = await deleteAudioFile(track.uri);
+      } catch {}
+
+      if (!deleted) {
+        try {
+          if (!track.uri.startsWith('content://')) {
+            const f = new File(track.uri);
+            if (f.exists) f.delete();
+          } else if (Platform.OS === 'android') {
+            await MediaLibrary.deleteAssetsAsync([track.uri]).catch(() => {});
+          }
+        } catch {}
+      }
+    }
+
+    // 4. Invalidate cache and remove from SQLite database
+    invalidateFileCache(track.uri);
+    deleteTrack(track.id);
+
+    // 5. Refresh store and display toast
+    useMusic.getState().refresh();
+    useMusic.getState().showToast(
+      deleteFileFromStorage ? `Deleted "${track.title}" from device` : `Removed "${track.title}" from library`
+    );
+    return true;
+  } catch (error) {
+    console.error('Failed to remove track:', error);
+    return false;
+  }
 }

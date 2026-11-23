@@ -8,7 +8,7 @@
     "test": "corepack pnpm --filter @noir/mobile test",
     "export:android": "corepack pnpm --filter @noir/mobile exec expo export --platform android",
     "export:ios": "corepack pnpm --filter @noir/mobile exec expo export --platform ios",
-    "build:android": "cd apps/mobile/android && ./gradlew assembleRelease",
-    "install:android": "cd apps/mobile/android && ./gradlew installDebug"
+    "build:android": "export JAVA_HOME=\"${JAVA_HOME:-$HOME/.local/share/noir-android-tools/build/jdk}\" ANDROID_HOME=\"${ANDROID_HOME:-$HOME/.local/share/noir-android-tools/build/sdk}\" PATH=\"$JAVA_HOME/bin:$PATH\" && cd apps/mobile/android && ./gradlew assembleRelease",
+    "install:android": "export JAVA_HOME=\"${JAVA_HOME:-$HOME/.local/share/noir-android-tools/build/jdk}\" ANDROID_HOME=\"${ANDROID_HOME:-$HOME/.local/share/noir-android-tools/build/sdk}\" PATH=\"$JAVA_HOME/bin:$PATH\" && cd apps/mobile/android && ./gradlew installDebug"
   }
 }

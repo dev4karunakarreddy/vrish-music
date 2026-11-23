@@ -46,6 +46,7 @@ export default function Root() {
         <Stack.Screen name="queue" />
         <Stack.Screen name="album" options={{ headerShown: false }} />
         <Stack.Screen name="settings" options={{ presentation: 'modal' }} />
+        <Stack.Screen name="edit-track" options={{ presentation: 'modal' }} />
       </Stack>
       {showIntro && <LogoSplash onFinish={handleIntroFinish} />}
     </GestureHandlerRootView>

@@ -25,7 +25,11 @@ export default function Album() {
   const tracks = useMusic((s) => s.tracks);
   const shuffle = useMusic((s) => s.shuffle);
 
-  const album = useMemo(() => groupAlbums(tracks).find((item) => item.key === group), [tracks, group]);
+  const album = useMemo(() => {
+    const list = groupAlbums(tracks);
+    const decoded = decodeURIComponent(group);
+    return list.find((item) => item.key === group || decodeURIComponent(item.key) === decoded || item.key === decoded);
+  }, [tracks, group]);
   const items = album?.tracks ?? [];
   const cover = items[0];
 

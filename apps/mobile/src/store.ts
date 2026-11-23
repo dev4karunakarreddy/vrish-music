@@ -23,6 +23,7 @@ interface State {
   setPlaying: (value: boolean) => void;
   setProgress: (positionMs: number, durationMs: number) => void;
   toggleFavorite: (id: string) => void;
+  updateTrackInStore: (track: Track) => void;
   setError: (error: string | null) => void;
   showToast: (msg: string) => void;
   clearToast: () => void;
@@ -75,6 +76,12 @@ export const useMusic = create<State>((set, get) => ({
     if (!track) return;
     setFavorite(id, !track.favorite);
     set({ tracks: getTracks(), playlists: getPlaylists() });
+  },
+
+  updateTrackInStore: (track: Track) => {
+    set((s) => ({
+      tracks: s.tracks.map((t) => (t.id === track.id ? track : t)),
+    }));
   },
 
   setError: (error) => set({ error }),

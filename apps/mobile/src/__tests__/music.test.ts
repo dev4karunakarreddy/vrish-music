@@ -92,4 +92,79 @@ describe('Grouping logic', () => {
     expect(artistA).toBeDefined();
     expect(artistA?.tracks.length).toBe(2);
   });
+
+  it('keeps tracks in different albums even when track titles are identical', () => {
+    const tracksWithSameTitle: Track[] = [
+      {
+        id: 'track-album-1',
+        uri: 'file:///Music/Album_A/Intro.mp3',
+        title: 'Intro',
+        artist: 'Daft Punk',
+        album: 'Homework',
+        durationMs: 120000,
+        addedAt: 1000,
+        favorite: false,
+        playCount: 0,
+      },
+      {
+        id: 'track-album-2',
+        uri: 'file:///Music/Album_B/Intro.mp3',
+        title: 'Intro',
+        artist: 'Daft Punk',
+        album: 'Discovery',
+        durationMs: 140000,
+        addedAt: 2000,
+        favorite: false,
+        playCount: 0,
+      },
+    ];
+
+    const albums = groupAlbums(tracksWithSameTitle);
+    expect(albums.length).toBe(2);
+
+    const homework = albums.find((a) => a.album === 'Homework');
+    const discovery = albums.find((a) => a.album === 'Discovery');
+
+    expect(homework).toBeDefined();
+    expect(discovery).toBeDefined();
+
+    expect(homework?.tracks).toHaveLength(1);
+    expect(homework?.tracks[0].id).toBe('track-album-1');
+    expect(homework?.tracks[0].title).toBe('Intro');
+
+    expect(discovery?.tracks).toHaveLength(1);
+    expect(discovery?.tracks[0].id).toBe('track-album-2');
+    expect(discovery?.tracks[0].title).toBe('Intro');
+  });
+
+  it('keeps multi-part and numbered albums separate and does not merge them', () => {
+    const multiPartTracks: Track[] = [
+      {
+        id: 'vol-1-track',
+        uri: 'file:///Music/vol1/song1.mp3',
+        title: 'Track 1',
+        artist: 'Artist',
+        album: 'Volume 1',
+        durationMs: 180000,
+        addedAt: 1000,
+        favorite: false,
+        playCount: 0,
+      },
+      {
+        id: 'vol-2-track',
+        uri: 'file:///Music/vol2/song1.mp3',
+        title: 'Track 1',
+        artist: 'Artist',
+        album: 'Volume 2',
+        durationMs: 190000,
+        addedAt: 2000,
+        favorite: false,
+        playCount: 0,
+      },
+    ];
+
+    const albums = groupAlbums(multiPartTracks);
+    expect(albums.length).toBe(2);
+    expect(albums.map((a) => a.album).sort()).toEqual(['Volume 1', 'Volume 2']);
+  });
 });

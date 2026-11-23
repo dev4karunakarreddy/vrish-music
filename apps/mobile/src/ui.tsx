@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import {
+  Alert,
   Pressable,
   Text,
   View,
@@ -14,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors } from '@noir/theme';
 import type { Track, Playlist, SongSortMode, AlbumSortMode, ArtistSortMode, SortDirection } from '@noir/types';
 import { playTrack, playNext, addToQueue } from './audio';
+import { removeTrack } from './library';
 import { useMusic } from './store';
 import { addTrackToPlaylist, createPlaylist, deletePlaylist, renamePlaylist } from './db';
 import { useRouter } from 'expo-router';
@@ -168,6 +170,37 @@ export function ToastBanner() {
   );
 }
 
+export function confirmDeleteTrack(track: Track, onDeleted?: () => void) {
+  Alert.alert(
+    `Delete "${track.title}"`,
+    'Choose whether to remove this song from your library or permanently delete it from your device storage.',
+    [
+      {
+        text: 'Cancel',
+        style: 'cancel',
+      },
+      {
+        text: 'Remove from Library',
+        onPress: () => {
+          void removeTrack(track, false).then((ok) => {
+            if (ok && onDeleted) onDeleted();
+          });
+        },
+      },
+      {
+        text: 'Delete from Storage',
+        style: 'destructive',
+        onPress: () => {
+          void removeTrack(track, true).then((ok) => {
+            if (ok && onDeleted) onDeleted();
+          });
+        },
+      },
+    ],
+    { cancelable: true }
+  );
+}
+
 // --- AUXIO STYLE TRACK ACTIONS MENU ---
 export function TrackMenuModal({
   track,
@@ -266,6 +299,28 @@ export function TrackMenuModal({
             <Ionicons name="information-circle-outline" size={20} color="white" style={styles.menuIcon} />
             <Text style={styles.menuText}>Song details</Text>
           </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={() => {
+              onClose();
+              router.push({ pathname: '/edit-track', params: { trackId: track.id } } as never);
+            }}
+          >
+            <Ionicons name="create-outline" size={20} color="white" style={styles.menuIcon} />
+            <Text style={styles.menuText}>Edit song & cover art</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={() => {
+              onClose();
+              confirmDeleteTrack(track);
+            }}
+          >
+            <Ionicons name="trash-outline" size={20} color="#FF6666" style={styles.menuIcon} />
+            <Text style={[styles.menuText, { color: '#FF6666' }]}>Delete song</Text>
+          </TouchableOpacity>
         </Pressable>
       </Pressable>
     </Modal>
@@ -282,6 +337,7 @@ export function TrackInfoModal({
   visible: boolean;
   onClose: () => void;
 }) {
+  const router = useRouter();
   if (!track) return null;
 
   const fileName = track.uri.split('/').pop() ?? 'Unknown';
@@ -291,9 +347,11 @@ export function TrackInfoModal({
     { label: 'Album', value: track.album },
     { label: 'Album Artist', value: track.albumArtist || 'Same as track artist' },
     { label: 'Composer', value: track.composer || 'Unknown' },
+    { label: 'Year', value: track.year || 'Not specified' },
+    { label: 'Genre', value: track.genre || 'Not specified' },
     { label: 'Duration', value: formatDuration(track.durationMs) },
     { label: 'Play count', value: `${track.playCount} times` },
-    { label: 'Added at', value: new Date(track.addedAt).toLocaleDateString() },
+    { label: 'Tags status', value: track.userEdited ? 'Custom user edited' : 'Original file tags' },
     { label: 'File name', value: fileName },
     { label: 'File path', value: track.uri },
   ];
@@ -322,9 +380,24 @@ export function TrackInfoModal({
             ))}
           </ScrollView>
 
-          <Pressable onPress={onClose} style={[styles.action, { alignSelf: 'stretch', alignItems: 'center', marginTop: 18 }]}>
-            <Text style={{ color: colors.background, fontWeight: '700', fontSize: 14 }}>Close</Text>
-          </Pressable>
+          <View style={{ marginTop: 18, gap: 10 }}>
+            <Pressable
+              onPress={() => {
+                onClose();
+                router.push({ pathname: '/edit-track', params: { trackId: track.id } } as never);
+              }}
+              style={[styles.action, { alignSelf: 'stretch', alignItems: 'center', backgroundColor: '#FFFFFF' }]}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Ionicons name="create-outline" size={17} color="#000000" style={{ marginRight: 6 }} />
+                <Text style={{ color: '#000000', fontWeight: '700', fontSize: 14 }}>Edit Song & Artwork</Text>
+              </View>
+            </Pressable>
+
+            <Pressable onPress={onClose} style={[styles.action, { alignSelf: 'stretch', alignItems: 'center', backgroundColor: '#1E1E1E' }]}>
+              <Text style={{ color: 'white', fontWeight: '600', fontSize: 14 }}>Close</Text>
+            </Pressable>
+          </View>
         </Pressable>
       </Pressable>
     </Modal>

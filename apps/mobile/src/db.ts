@@ -18,6 +18,9 @@ CREATE TABLE IF NOT EXISTS tracks (
 
 try { db.execSync('ALTER TABLE tracks ADD COLUMN composer TEXT'); } catch { /* already migrated */ }
 try { db.execSync('ALTER TABLE tracks ADD COLUMN album_artist TEXT'); } catch { /* already migrated */ }
+try { db.execSync('ALTER TABLE tracks ADD COLUMN user_edited INTEGER DEFAULT 0'); } catch { /* already migrated */ }
+try { db.execSync('ALTER TABLE tracks ADD COLUMN year TEXT'); } catch { /* already migrated */ }
+try { db.execSync('ALTER TABLE tracks ADD COLUMN genre TEXT'); } catch { /* already migrated */ }
 db.execSync('CREATE TABLE IF NOT EXISTS playback_session (key TEXT PRIMARY KEY, value TEXT NOT NULL);');
 db.execSync('CREATE TABLE IF NOT EXISTS track_fingerprints (track_id TEXT PRIMARY KEY, sha256 TEXT NOT NULL UNIQUE);');
 db.execSync('CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);');
@@ -52,6 +55,9 @@ type Row = {
   added_at: number;
   favorite: number;
   play_count: number;
+  user_edited: number | null;
+  year: string | null;
+  genre: string | null;
 };
 
 const map = (r: Row): Track => ({
@@ -67,15 +73,28 @@ const map = (r: Row): Track => ({
   addedAt: r.added_at,
   favorite: !!r.favorite,
   playCount: r.play_count,
+  userEdited: !!r.user_edited,
+  year: r.year ?? undefined,
+  genre: r.genre ?? undefined,
 });
 
 export function getTracks(): Track[] {
   return db.getAllSync<Row>('SELECT * FROM tracks ORDER BY added_at DESC').map(map);
 }
 
+export function getTrackById(id: string): Track | null {
+  const row = db.getFirstSync<Row>('SELECT * FROM tracks WHERE id=?', id);
+  return row ? map(row) : null;
+}
+
+export function findTrackByUri(uri: string): Track | null {
+  const row = db.getFirstSync<Row>('SELECT * FROM tracks WHERE uri=?', uri);
+  return row ? map(row) : null;
+}
+
 export function saveTrack(t: Track): void {
   db.runSync(
-    'INSERT OR REPLACE INTO tracks (id,uri,title,artist,album,album_artist,composer,artwork_uri,duration_ms,added_at,favorite,play_count) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+    'INSERT OR REPLACE INTO tracks (id,uri,title,artist,album,album_artist,composer,artwork_uri,duration_ms,added_at,favorite,play_count,user_edited,year,genre) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
     t.id,
     t.uri,
     t.title,
@@ -88,7 +107,24 @@ export function saveTrack(t: Track): void {
     t.addedAt,
     +t.favorite,
     t.playCount,
+    t.userEdited ? 1 : 0,
+    t.year ?? null,
+    t.genre ?? null,
   );
+}
+
+export function updateTrack(id: string, updates: Partial<Track>): Track | null {
+  const current = getTrackById(id);
+  if (!current) return null;
+  const merged: Track = {
+    ...current,
+    ...updates,
+    id: current.id,
+    uri: current.uri,
+    userEdited: updates.userEdited !== undefined ? updates.userEdited : true,
+  };
+  saveTrack(merged);
+  return merged;
 }
 
 export function setFavorite(id: string, value: boolean): void {
