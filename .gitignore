@@ -1,0 +1,8 @@
+node_modules
+.expo
+dist
+*.tsbuildinfo
+package-lock.json
+phase*.md
+apps/mobile/android/app/build/
+build-output/

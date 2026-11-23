@@ -1,0 +1,49 @@
+{
+  "expo": {
+    "name": "VRISH MUSIC",
+    "slug": "vrish-music",
+    "scheme": "vrishmusic",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "icon": "./assets/icon.png",
+    "platforms": ["android", "ios"],
+    "ios": {
+      "bundleIdentifier": "app.noir.music",
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "app.noir.music",
+      "edgeToEdgeEnabled": true,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-foreground.png",
+        "backgroundImage": "./assets/adaptive-background.png",
+        "backgroundColor": "#000000"
+      }
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-audio",
+        {
+          "enableBackgroundPlayback": true,
+          "enableBackgroundRecording": false,
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "granularPermissions": ["audio"]
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "splash": {
+      "backgroundColor": "#000000"
+    }
+  }
+}

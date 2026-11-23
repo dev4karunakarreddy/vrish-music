@@ -1,0 +1,14 @@
+{
+  "name": "vrish-music",
+  "private": true,
+  "packageManager": "pnpm@12.21.0",
+  "scripts": {
+    "mobile": "corepack pnpm --filter @noir/mobile start",
+    "typecheck": "corepack pnpm --filter @noir/mobile typecheck",
+    "test": "corepack pnpm --filter @noir/mobile test",
+    "export:android": "corepack pnpm --filter @noir/mobile exec expo export --platform android",
+    "export:ios": "corepack pnpm --filter @noir/mobile exec expo export --platform ios",
+    "build:android": "export JAVA_HOME=\"$HOME/.local/share/noir-android-tools/build/jdk\" ANDROID_HOME=\"$HOME/.local/share/noir-android-tools/build/sdk\" PATH=\"$JAVA_HOME/bin:$HOME/.local/share/noir-android-tools/platform-tools:$PATH\" && cd apps/mobile/android && ./gradlew assembleRelease",
+    "install:android": "export JAVA_HOME=\"$HOME/.local/share/noir-android-tools/build/jdk\" ANDROID_HOME=\"$HOME/.local/share/noir-android-tools/build/sdk\" PATH=\"$JAVA_HOME/bin:$HOME/.local/share/noir-android-tools/platform-tools:$PATH\" && cd apps/mobile/android && ./gradlew installDebug"
+  }
+}
