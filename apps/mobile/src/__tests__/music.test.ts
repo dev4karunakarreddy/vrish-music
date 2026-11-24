@@ -274,4 +274,100 @@ describe('Grouping logic', () => {
     expect(albums[0].tracks).toHaveLength(3);
     expect(albums[0].artist).toBe('Hesham Abdul Wahab');
   });
+
+  it('correctly merges Hrudayam Murali and DC albums from user library', () => {
+    const userTracks: Track[] = [
+      {
+        id: 'hm-1',
+        uri: 'file:///music/hrudayame.mp3',
+        title: 'Hrudayame',
+        artist: 'Manojna',
+        album: 'Hrudayam Murali',
+        durationMs: 200000,
+        addedAt: 1000,
+        favorite: false,
+        playCount: 0,
+      },
+      {
+        id: 'hm-2',
+        uri: 'file:///music/raamma.mp3',
+        title: 'Raamma Raamma',
+        artist: 'D Dheeraj',
+        album: 'Hrudayam Murali',
+        durationMs: 210000,
+        addedAt: 2000,
+        favorite: false,
+        playCount: 0,
+      },
+      {
+        id: 'hm-3',
+        uri: 'file:///music/kalalenno.mp3',
+        title: 'Kalalenno',
+        artist: 'Tushar Sambhara',
+        album: 'Hrudayam Murali',
+        durationMs: 195000,
+        addedAt: 3000,
+        favorite: false,
+        playCount: 0,
+      },
+      {
+        id: 'hm-4',
+        uri: 'file:///music/manasa.mp3',
+        title: 'Manasa',
+        artist: 'Madduri Hemant',
+        album: 'Hrudayam Murali',
+        durationMs: 180000,
+        addedAt: 4000,
+        favorite: false,
+        playCount: 0,
+      },
+      {
+        id: 'dc-1',
+        uri: 'file:///music/raga.mp3',
+        title: 'Raga of Revenge :: SenSongsMp3.Com',
+        artist: 'Anirudh Ravichander',
+        album: 'DC (2026)',
+        albumArtist: 'Lokesh Kankaraj',
+        durationMs: 240000,
+        addedAt: 5000,
+        favorite: false,
+        playCount: 0,
+      },
+      {
+        id: 'dc-2',
+        uri: 'file:///music/namaste.mp3',
+        title: 'Namaste :: SenSongsMp3.Com',
+        artist: 'Anirudh Ravichander',
+        album: 'DC (2026)',
+        albumArtist: 'Lokesh Kanakaraj',
+        durationMs: 250000,
+        addedAt: 6000,
+        favorite: false,
+        playCount: 0,
+      },
+      {
+        id: 'dc-3',
+        uri: 'file:///music/hangova.mp3',
+        title: 'Hangova :: SenSongsMp3.Com',
+        artist: 'Anirudh Ravichander',
+        album: 'DC',
+        albumArtist: 'Lokesh Kanakaraj',
+        durationMs: 220000,
+        addedAt: 7000,
+        favorite: false,
+        playCount: 0,
+      },
+    ];
+
+    const albums = groupAlbums(userTracks);
+    expect(albums.length).toBe(2);
+
+    const hrudayam = albums.find((a) => a.album.includes('Hrudayam Murali'));
+    expect(hrudayam).toBeDefined();
+    expect(hrudayam?.tracks).toHaveLength(4);
+
+    const dc = albums.find((a) => a.album.includes('DC'));
+    expect(dc).toBeDefined();
+    expect(dc?.tracks).toHaveLength(3);
+  });
 });
