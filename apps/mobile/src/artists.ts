@@ -45,7 +45,7 @@ export function groupArtists(tracks: Track[]): ArtistGroup[] {
 
   return Array.from(artistMap.entries()).map(([name, artistTracks]) => {
     const albums = albumsByArtist.get(name.toLowerCase()) ?? [];
-    const sortedTracks = [...artistTracks].sort((a, b) => artistCollator.compare(a.title, b.title));
+    const sortedTracks = [...artistTracks].sort((a, b) => (a.title < b.title ? -1 : a.title > b.title ? 1 : 0));
     return {
       name,
       tracks: sortedTracks,

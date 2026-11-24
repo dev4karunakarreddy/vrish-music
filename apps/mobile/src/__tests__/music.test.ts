@@ -167,4 +167,111 @@ describe('Grouping logic', () => {
     expect(albums.length).toBe(2);
     expect(albums.map((a) => a.album).sort()).toEqual(['Volume 1', 'Volume 2']);
   });
+
+  it('merges album tracks with 60-70% similarity and bracketed years', () => {
+    const tracksWithYearVariants: Track[] = [
+      {
+        id: 't-1',
+        uri: 'file:///music/song1.mp3',
+        title: 'Ninnu Kori',
+        artist: 'Gopi Sundar',
+        album: 'Ninnu Kori (2017)',
+        durationMs: 200000,
+        addedAt: 1000,
+        favorite: false,
+        playCount: 0,
+      },
+      {
+        id: 't-2',
+        uri: 'file:///music/song2.mp3',
+        title: 'Unnatundi Gundey',
+        artist: 'Karthik, Chinmayi Sripaada',
+        album: 'Ninnu Kori',
+        durationMs: 220000,
+        addedAt: 2000,
+        favorite: false,
+        playCount: 0,
+      },
+      {
+        id: 't-3',
+        uri: 'file:///music/song3.mp3',
+        title: 'Endaro',
+        artist: 'Runeka Arun',
+        album: 'Bale Bale Magadivoy',
+        durationMs: 210000,
+        addedAt: 3000,
+        favorite: false,
+        playCount: 0,
+      },
+      {
+        id: 't-4',
+        uri: 'file:///music/song4.mp3',
+        title: 'Motta Modatisari',
+        artist: 'Sachin Warrier',
+        album: 'Bale Bale Magadivoy (2015)',
+        durationMs: 230000,
+        addedAt: 4000,
+        favorite: false,
+        playCount: 0,
+      },
+    ];
+
+    const albums = groupAlbums(tracksWithYearVariants);
+    expect(albums.length).toBe(2);
+
+    const ninnuKori = albums.find((a) => a.album.toLowerCase().includes('ninnu kori'));
+    const baleBale = albums.find((a) => a.album.toLowerCase().includes('bale bale'));
+
+    expect(ninnuKori).toBeDefined();
+    expect(ninnuKori?.tracks).toHaveLength(2);
+    expect(ninnuKori?.tracks.map((t) => t.id).sort()).toEqual(['t-1', 't-2']);
+
+    expect(baleBale).toBeDefined();
+    expect(baleBale?.tracks).toHaveLength(2);
+    expect(baleBale?.tracks.map((t) => t.id).sort()).toEqual(['t-3', 't-4']);
+  });
+
+  it('merges soundtrack songs with different singers into the single shared album', () => {
+    const soundtrackTracks: Track[] = [
+      {
+        id: 'hr-1',
+        uri: 'file:///music/darshana.mp3',
+        title: 'Darshana',
+        artist: 'Hesham Abdul Wahab, Darshana Rajendran',
+        album: 'Hridayam',
+        durationMs: 210000,
+        addedAt: 1000,
+        favorite: false,
+        playCount: 0,
+      },
+      {
+        id: 'hr-2',
+        uri: 'file:///music/manasse.mp3',
+        title: 'Manasse Manasse',
+        artist: 'Vineeth Sreenivasan',
+        album: 'Hridayam',
+        durationMs: 220000,
+        addedAt: 2000,
+        favorite: false,
+        playCount: 0,
+      },
+      {
+        id: 'hr-3',
+        uri: 'file:///music/puthiyoru.mp3',
+        title: 'Puthiyoru Lokam',
+        artist: 'Hesham Abdul Wahab, Vimal Roy',
+        album: 'Hridayam',
+        durationMs: 230000,
+        addedAt: 3000,
+        favorite: false,
+        playCount: 0,
+      },
+    ];
+
+    const albums = groupAlbums(soundtrackTracks);
+    expect(albums.length).toBe(1);
+    expect(albums[0].album).toBe('Hridayam');
+    expect(albums[0].tracks).toHaveLength(3);
+    expect(albums[0].artist).toBe('Hesham Abdul Wahab');
+  });
 });

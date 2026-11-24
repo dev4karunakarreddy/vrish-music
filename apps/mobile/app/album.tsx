@@ -3,7 +3,7 @@ import { FlatList, Pressable, Text, View, TouchableOpacity } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '@noir/theme';
-import { groupAlbums } from '../src/albums';
+import { groupAlbums, cleanAlbumTitle } from '../src/albums';
 import {
   Artwork,
   Empty,
@@ -28,7 +28,13 @@ export default function Album() {
   const album = useMemo(() => {
     const list = groupAlbums(tracks);
     const decoded = decodeURIComponent(group);
-    return list.find((item) => item.key === group || decodeURIComponent(item.key) === decoded || item.key === decoded);
+    return list.find(
+      (item) =>
+        item.key === group ||
+        decodeURIComponent(item.key) === decoded ||
+        item.key === decoded ||
+        cleanAlbumTitle(item.album) === cleanAlbumTitle(decoded),
+    );
   }, [tracks, group]);
   const items = album?.tracks ?? [];
   const cover = items[0];
