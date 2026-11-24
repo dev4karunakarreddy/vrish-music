@@ -30,6 +30,9 @@ export interface WriteMetadataInput {
 export interface WriteMetadataResult {
   success: boolean;
   uri?: string;
+  realPath?: string;
+  error?: string;
+  message?: string;
 }
 
 const nativeMetadata = NativeModules.VrishMetadata as
@@ -38,8 +41,32 @@ const nativeMetadata = NativeModules.VrishMetadata as
       fingerprint(uri: string): Promise<string>;
       writeMetadata(uri: string, id: string, tags: WriteMetadataInput): Promise<WriteMetadataResult>;
       deleteTrackFile(uri: string): Promise<boolean>;
+      hasStoragePermission(): Promise<boolean>;
+      requestStoragePermission(): Promise<boolean>;
     }
   | undefined;
+
+export async function hasStoragePermission(): Promise<boolean> {
+  if (Platform.OS !== 'android' || !nativeMetadata?.hasStoragePermission) {
+    return true;
+  }
+  try {
+    return await nativeMetadata.hasStoragePermission();
+  } catch {
+    return false;
+  }
+}
+
+export async function requestStoragePermission(): Promise<boolean> {
+  if (Platform.OS !== 'android' || !nativeMetadata?.requestStoragePermission) {
+    return true;
+  }
+  try {
+    return await nativeMetadata.requestStoragePermission();
+  } catch {
+    return false;
+  }
+}
 
 export async function fingerprintFile(uri: string): Promise<string | null> {
   try {

@@ -1,14 +1,20 @@
 package app.noir.music
 
+import android.Manifest
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.database.sqlite.SQLiteDatabase
 import android.media.MediaMetadataRetriever
 import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
+import android.os.Environment
 import android.os.PowerManager
+import android.provider.MediaStore
 import android.provider.Settings
+import androidx.core.content.ContextCompat
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
@@ -19,6 +25,8 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.InputStream
+import java.io.RandomAccessFile
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.util.concurrent.Executors
@@ -28,6 +36,53 @@ import org.json.JSONObject
 class VrishMetadataModule(private val context: ReactApplicationContext) : ReactContextBaseJavaModule(context) {
   private val executor = Executors.newSingleThreadExecutor()
   override fun getName() = "VrishMetadata"
+
+  @ReactMethod
+  fun hasStoragePermission(promise: Promise) {
+    try {
+      val granted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        Environment.isExternalStorageManager()
+      } else {
+        ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+      }
+      promise.resolve(granted)
+    } catch (e: Exception) {
+      promise.resolve(false)
+    }
+  }
+
+  @ReactMethod
+  fun requestStoragePermission(promise: Promise) {
+    try {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        try {
+          val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+            data = Uri.parse("package:${context.packageName}")
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+          }
+          context.startActivity(intent)
+          promise.resolve(true)
+          return
+        } catch (e: Exception) {
+          val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+          }
+          context.startActivity(intent)
+          promise.resolve(true)
+          return
+        }
+      } else {
+        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+          data = Uri.parse("package:${context.packageName}")
+          addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(intent)
+        promise.resolve(true)
+      }
+    } catch (e: Exception) {
+      promise.reject("STORAGE_PERMISSION_ERROR", "Could not open storage settings", e)
+    }
+  }
 
   @ReactMethod
   fun requestBackgroundPlaybackExemption(promise: Promise) {
@@ -110,6 +165,38 @@ class VrishMetadataModule(private val context: ReactApplicationContext) : ReactC
     }
   }
 
+  private fun getRealPathFromUri(uri: Uri): String? {
+    if (uri.scheme == "file") {
+      return uri.path
+    }
+    if (uri.scheme == "content") {
+      val projection = arrayOf(MediaStore.Audio.Media.DATA)
+      try {
+        context.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+          val colIdx = cursor.getColumnIndex(MediaStore.Audio.Media.DATA)
+          if (colIdx >= 0 && cursor.moveToFirst()) {
+            val path = cursor.getString(colIdx)
+            if (!path.isNullOrEmpty()) return path
+          }
+        }
+      } catch (e: Exception) {
+        // Fallback for custom content providers
+      }
+    }
+    return uri.path
+  }
+
+  private fun skipFully(inStream: InputStream, bytesToSkip: Long) {
+    var remaining = bytesToSkip
+    val buffer = ByteArray(minOf(remaining, 8192L).toInt())
+    while (remaining > 0) {
+      val toRead = minOf(remaining, buffer.size.toLong()).toInt()
+      val count = inStream.read(buffer, 0, toRead)
+      if (count < 0) break
+      remaining -= count
+    }
+  }
+
   private fun toSynchsafe(size: Int): ByteArray {
     return byteArrayOf(
       ((size shr 21) and 0x7F).toByte(),
@@ -136,10 +223,15 @@ class VrishMetadataModule(private val context: ReactApplicationContext) : ReactC
   }
 
   private fun buildTextFrame(frameId: String, text: String): ByteArray {
-    val textBytes = text.toByteArray(StandardCharsets.UTF_16)
+    val isAscii = text.all { it.code in 32..126 }
     val body = ByteArrayOutputStream()
-    body.write(0x01) // Encoding: UTF-16 with BOM
-    body.write(textBytes)
+    if (isAscii) {
+      body.write(0x00) // ISO-8859-1
+      body.write(text.toByteArray(StandardCharsets.ISO_8859_1))
+    } else {
+      body.write(0x01) // UTF-16 with BOM
+      body.write(text.toByteArray(StandardCharsets.UTF_16))
+    }
     val bodyBytes = body.toByteArray()
 
     val frame = ByteArrayOutputStream()
@@ -170,18 +262,80 @@ class VrishMetadataModule(private val context: ReactApplicationContext) : ReactC
     return frame.toByteArray()
   }
 
+  private fun buildId3v1Tag(title: String?, artist: String?, album: String?, year: String?): ByteArray {
+    val tag = ByteArray(128)
+    tag[0] = 'T'.code.toByte()
+    tag[1] = 'A'.code.toByte()
+    tag[2] = 'G'.code.toByte()
+
+    fun writeField(offset: Int, len: Int, value: String?) {
+      if (value.isNullOrEmpty()) return
+      val bytes = value.toByteArray(StandardCharsets.ISO_8859_1)
+      val copyLen = minOf(bytes.size, len)
+      System.arraycopy(bytes, 0, tag, offset, copyLen)
+    }
+
+    writeField(3, 30, title)
+    writeField(33, 30, artist)
+    writeField(63, 30, album)
+    writeField(93, 4, year)
+    tag[127] = 255.toByte() // Unknown genre
+    return tag
+  }
+
   @ReactMethod
   fun writeMetadata(uri: String, id: String, tags: ReadableMap, promise: Promise) {
     executor.execute {
+      var tempFile: File? = null
       try {
-        val parsed = Uri.parse(uri)
-        fun openInStream() = if (parsed.scheme == "content") {
-          context.contentResolver.openInputStream(parsed) ?: throw Exception("Cannot open stream for content URI")
+        val hasStorageAccess = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+          Environment.isExternalStorageManager()
         } else {
-          FileInputStream(parsed.path ?: uri)
+          ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
         }
 
-        // 1. Read existing ID3 header to preserve unedited frames and find start of audio stream
+        if (!hasStorageAccess) {
+          val res = Arguments.createMap()
+          res.putBoolean("success", false)
+          res.putString("error", "PERMISSION_REQUIRED")
+          res.putString("message", "Manage External Storage permission required to modify audio files on device")
+          promise.resolve(res)
+          return@execute
+        }
+
+        val parsed = Uri.parse(uri)
+        val realPath = getRealPathFromUri(parsed)
+        val targetFile = if (!realPath.isNullOrEmpty()) File(realPath) else null
+        val isMp3 = targetFile?.name?.endsWith(".mp3", ignoreCase = true) == true ||
+                    (parsed.path ?: uri).endsWith(".mp3", ignoreCase = true)
+
+        fun openInStream(): InputStream {
+          return if (targetFile != null && targetFile.exists() && targetFile.canRead()) {
+            FileInputStream(targetFile)
+          } else if (parsed.scheme == "content") {
+            context.contentResolver.openInputStream(parsed) ?: throw Exception("Cannot open stream for content URI")
+          } else {
+            FileInputStream(parsed.path ?: uri)
+          }
+        }
+
+        // Check file length & trailing ID3v1 tag
+        var fileLength = targetFile?.takeIf { it.exists() }?.length() ?: 0L
+        var hasId3v1 = false
+        if (targetFile != null && targetFile.exists() && fileLength >= 128) {
+          try {
+            RandomAccessFile(targetFile, "r").use { raf ->
+              raf.seek(fileLength - 128)
+              val tagHeader = ByteArray(3)
+              raf.readFully(tagHeader)
+              if (tagHeader[0] == 'T'.code.toByte() && tagHeader[1] == 'A'.code.toByte() && tagHeader[2] == 'G'.code.toByte()) {
+                hasId3v1 = true
+              }
+            }
+          } catch (e: Exception) {}
+        }
+
+        // 1. Read existing ID3v2 header to preserve unedited frames and find start of audio stream
         var audioOffset = 0L
         var versionMajor = 3
         val preservedFrames = ByteArrayOutputStream()
@@ -246,7 +400,7 @@ class VrishMetadataModule(private val context: ReactApplicationContext) : ReactC
           }
         } else null
 
-        // 3. Assemble all frames
+        // 3. Assemble all ID3v2 frames
         val allFrames = ByteArrayOutputStream()
         allFrames.write(preservedFrames.toByteArray())
 
@@ -292,47 +446,61 @@ class VrishMetadataModule(private val context: ReactApplicationContext) : ReactC
         header.write(toSynchsafe(framesBytes.size))
 
         // 5. Write new file to temp cache file
-        val tempFile = File(context.cacheDir, "vrish_tagged_${System.currentTimeMillis()}.tmp")
-        FileOutputStream(tempFile).use { outStream ->
+        val audioBytesToCopy = if (fileLength > audioOffset) {
+          fileLength - audioOffset - (if (isMp3 && hasId3v1) 128L else 0L)
+        } else -1L
+
+        val tFile = File(context.cacheDir, "vrish_tagged_${System.currentTimeMillis()}.tmp")
+        tempFile = tFile
+
+        FileOutputStream(tFile).use { outStream ->
           outStream.write(header.toByteArray())
           outStream.write(framesBytes)
 
           openInStream().use { inStream ->
-            var skipped = 0L
-            while (skipped < audioOffset) {
-              val n = inStream.skip(audioOffset - skipped)
-              if (n <= 0) break
-              skipped += n
+            skipFully(inStream, audioOffset)
+            if (audioBytesToCopy > 0) {
+              var remaining = audioBytesToCopy
+              val buf = ByteArray(65536)
+              while (remaining > 0) {
+                val toRead = minOf(remaining, buf.size.toLong()).toInt()
+                val count = inStream.read(buf, 0, toRead)
+                if (count < 0) break
+                outStream.write(buf, 0, count)
+                remaining -= count
+              }
+            } else {
+              val buf = ByteArray(65536)
+              while (true) {
+                val count = inStream.read(buf)
+                if (count < 0) break
+                outStream.write(buf, 0, count)
+              }
             }
-            val buf = ByteArray(65536)
-            while (true) {
-              val count = inStream.read(buf)
-              if (count < 0) break
-              outStream.write(buf, 0, count)
-            }
+          }
+
+          if (isMp3) {
+            val id3v1Bytes = buildId3v1Tag(title, artist, album, year)
+            outStream.write(id3v1Bytes)
           }
           outStream.flush()
         }
 
-        // 6. Overwrite original file with tagged temp file
+        // 6. Overwrite the physical file directly on device storage
         var writeSuccess = false
-        var finalUri = uri
-
-        if (parsed.scheme != "content") {
-          val filePath = parsed.path ?: uri
-          val destFile = File(filePath)
+        if (targetFile != null && targetFile.exists()) {
           try {
-            if (destFile.exists() && destFile.canWrite()) {
-              tempFile.copyTo(destFile, overwrite = true)
-              writeSuccess = true
-            }
-          } catch (e: Exception) {}
+            tFile.copyTo(targetFile, overwrite = true)
+            writeSuccess = true
+          } catch (e: Exception) {
+            // Log and try ContentResolver output stream below
+          }
         }
 
         if (!writeSuccess && parsed.scheme == "content") {
           try {
             context.contentResolver.openOutputStream(parsed, "wt")?.use { outStream ->
-              FileInputStream(tempFile).use { inStream ->
+              FileInputStream(tFile).use { inStream ->
                 inStream.copyTo(outStream)
               }
               outStream.flush()
@@ -341,27 +509,40 @@ class VrishMetadataModule(private val context: ReactApplicationContext) : ReactC
           } catch (e: Exception) {}
         }
 
-        // Fallback: If external location was strictly read-only, copy to app's Music folder
         if (!writeSuccess) {
-          try {
-            val musicDir = File(context.getExternalFilesDir(null), "Music").apply { mkdirs() }
-            val origName = File(parsed.path ?: uri).name.ifEmpty { "song_${System.currentTimeMillis()}.mp3" }
-            val safeName = if (origName.endsWith(".mp3", ignoreCase = true)) origName else "$origName.mp3"
-            val dest = File(musicDir, safeName)
-            tempFile.copyTo(dest, overwrite = true)
-            finalUri = Uri.fromFile(dest).toString()
-            writeSuccess = true
-          } catch (e: Exception) {
-            val dest = File(context.filesDir, "song_${System.currentTimeMillis()}.mp3")
-            tempFile.copyTo(dest, overwrite = true)
-            finalUri = Uri.fromFile(dest).toString()
-            writeSuccess = true
-          }
+          tFile.delete()
+          val res = Arguments.createMap()
+          res.putBoolean("success", false)
+          res.putString("error", "WRITE_FAILED")
+          res.putString("message", "Unable to overwrite physical audio file on storage")
+          promise.resolve(res)
+          return@execute
         }
 
-        tempFile.delete()
+        tFile.delete()
 
-        // 7. Update internal artwork cache
+        // 7. Update MediaStore database record directly
+        try {
+          val values = ContentValues().apply {
+            if (!title.isNullOrEmpty()) put(MediaStore.Audio.Media.TITLE, title)
+            if (!artist.isNullOrEmpty()) put(MediaStore.Audio.Media.ARTIST, artist)
+            if (!album.isNullOrEmpty()) put(MediaStore.Audio.Media.ALBUM, album)
+            val yearInt = year?.toIntOrNull()
+            if (yearInt != null) put(MediaStore.Audio.Media.YEAR, yearInt)
+          }
+          if (parsed.scheme == "content") {
+            context.contentResolver.update(parsed, values, null, null)
+          } else if (targetFile != null) {
+            context.contentResolver.update(
+              MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+              values,
+              "${MediaStore.Audio.Media.DATA} = ?",
+              arrayOf(targetFile.absolutePath)
+            )
+          }
+        } catch (e: Exception) {}
+
+        // 8. Update internal artwork cache
         if (imageBytes != null && imageBytes.isNotEmpty()) {
           val artworkDir = File(context.filesDir, "artwork").apply { mkdirs() }
           File(artworkDir, "$id.art").writeBytes(imageBytes)
@@ -370,20 +551,22 @@ class VrishMetadataModule(private val context: ReactApplicationContext) : ReactC
           if (artworkFile.exists()) artworkFile.delete()
         }
 
-        // 8. Refresh Android MediaScanner
+        // 9. Refresh Android MediaScanner so system immediately indexes the changes
         try {
-          val scanPath = if (parsed.scheme == "file") parsed.path else if (!finalUri.startsWith("content://")) Uri.parse(finalUri).path else null
+          val scanPath = targetFile?.absolutePath ?: (if (parsed.scheme == "file") parsed.path else null)
           if (scanPath != null) {
             MediaScannerConnection.scanFile(context, arrayOf(scanPath), arrayOf("audio/mpeg"), null)
           }
         } catch (e: Exception) {}
 
         val result = Arguments.createMap()
-        result.putBoolean("success", writeSuccess)
-        result.putString("uri", finalUri)
+        result.putBoolean("success", true)
+        result.putString("uri", uri)
+        result.putString("realPath", targetFile?.absolutePath)
         promise.resolve(result)
       } catch (e: Exception) {
-        promise.reject("WRITE_METADATA_ERROR", "Failed to write tags to audio file", e)
+        tempFile?.delete()
+        promise.reject("WRITE_METADATA_ERROR", "Failed to write tags to audio file: ${e.message}", e)
       }
     }
   }
@@ -393,21 +576,19 @@ class VrishMetadataModule(private val context: ReactApplicationContext) : ReactC
     executor.execute {
       try {
         val parsed = Uri.parse(uri)
+        val realPath = getRealPathFromUri(parsed)
         var deleted = false
+        if (!realPath.isNullOrEmpty()) {
+          val f = File(realPath)
+          if (f.exists()) {
+            deleted = f.delete()
+          }
+        }
         if (parsed.scheme == "content") {
           try {
             val count = context.contentResolver.delete(parsed, null, null)
-            deleted = count > 0
-          } catch (e: Exception) {
-            val p = parsed.path
-            if (p != null) {
-              val f = File(p)
-              if (f.exists()) deleted = f.delete()
-            }
-          }
-        } else {
-          val f = File(parsed.path ?: uri)
-          deleted = if (f.exists()) f.delete() else true
+            if (count > 0) deleted = true
+          } catch (e: Exception) {}
         }
         promise.resolve(deleted)
       } catch (e: Exception) {

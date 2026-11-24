@@ -54,13 +54,20 @@ export async function pickArtworkImage(trackId?: string): Promise<string | null>
   }
 }
 
+export interface SaveTrackEditsResult {
+  success: boolean;
+  track: Track | null;
+  error?: string;
+  message?: string;
+}
+
 /**
  * Commits user metadata and cover art edits to the SQLite database
  * and propagates updates reactively to the entire player and UI.
  */
-export async function saveTrackEdits(trackId: string, input: TrackEditInput): Promise<Track | null> {
+export async function saveTrackEdits(trackId: string, input: TrackEditInput): Promise<SaveTrackEditsResult> {
   const current = getTrackById(trackId);
-  if (!current) return null;
+  if (!current) return { success: false, track: null, error: 'NOT_FOUND', message: 'Track not found' };
 
   // 1. Replace the existing audio file tags & embedded artwork directly on storage
   const writeRes = await writeTrackMetadataToFile(current.uri, current.id, {
@@ -74,6 +81,15 @@ export async function saveTrackEdits(trackId: string, input: TrackEditInput): Pr
     artworkUri: input.artworkUri,
     removeArtwork: !input.artworkUri && !!current.artworkUri,
   });
+
+  if (!writeRes.success) {
+    return {
+      success: false,
+      track: null,
+      error: writeRes.error || 'WRITE_FAILED',
+      message: writeRes.message || 'Failed to update physical audio file tags',
+    };
+  }
 
   const finalUri = writeRes?.uri || current.uri;
 
@@ -100,10 +116,10 @@ export async function saveTrackEdits(trackId: string, input: TrackEditInput): Pr
 
   if (updated) {
     useMusic.getState().updateTrackInStore(updated);
-    useMusic.getState().showToast('File & audio tags updated');
+    useMusic.getState().showToast('Audio file & tags updated');
   }
 
-  return updated;
+  return { success: true, track: updated };
 }
 
 /**

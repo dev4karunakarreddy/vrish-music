@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
+  AppState,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -26,6 +27,7 @@ import Animated, {
 import { colors } from '@noir/theme';
 import { useMusic } from '../src/store';
 import { pickArtworkImage, saveTrackEdits, revertTrackEdits } from '../src/tagEditor';
+import { hasStoragePermission, requestStoragePermission } from '../src/metadata';
 import { formatDuration } from '../src/format';
 import { confirmDeleteTrack, useTopInset } from '../src/ui';
 
@@ -51,6 +53,23 @@ export default function EditTrackScreen() {
   const [saving, setSaving] = useState(false);
   const [pickingImage, setPickingImage] = useState(false);
   const [activeInput, setActiveInput] = useState<string | null>(null);
+  const [hasStoragePerm, setHasStoragePerm] = useState<boolean | null>(null);
+
+  const checkPerm = useCallback(async () => {
+    const granted = await hasStoragePermission();
+    setHasStoragePerm(granted);
+    return granted;
+  }, []);
+
+  useEffect(() => {
+    checkPerm();
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        checkPerm();
+      }
+    });
+    return () => sub.remove();
+  }, [checkPerm]);
 
   // Reanimated press physics for save button
   const saveScale = useSharedValue(1);
@@ -115,9 +134,27 @@ export default function EditTrackScreen() {
       return;
     }
 
+    const granted = await checkPerm();
+    if (!granted) {
+      Alert.alert(
+        'Storage Permission Required',
+        'Noir Music needs All Files Access permission to update audio tags directly in your physical music file.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Grant Permission',
+            onPress: async () => {
+              await requestStoragePermission();
+            },
+          },
+        ]
+      );
+      return;
+    }
+
     setSaving(true);
     try {
-      await saveTrackEdits(track.id, {
+      const res = await saveTrackEdits(track.id, {
         title,
         artist,
         album,
@@ -127,13 +164,35 @@ export default function EditTrackScreen() {
         genre,
         artworkUri,
       });
+
+      if (!res.success) {
+        if (res.error === 'PERMISSION_REQUIRED') {
+          Alert.alert(
+            'Permission Required',
+            'All Files Access permission is required to save edits directly to this audio file.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              {
+                text: 'Grant Permission',
+                onPress: async () => {
+                  await requestStoragePermission();
+                },
+              },
+            ]
+          );
+        } else {
+          Alert.alert('Save Failed', res.message || 'Could not update audio file on storage.');
+        }
+        return;
+      }
+
       router.back();
-    } catch (e) {
-      Alert.alert('Save Error', 'Could not save track metadata.');
+    } catch (e: any) {
+      Alert.alert('Save Error', e?.message || 'Could not save track metadata.');
     } finally {
       setSaving(false);
     }
-  }, [track, title, artist, album, albumArtist, composer, year, genre, artworkUri, router]);
+  }, [track, title, artist, album, albumArtist, composer, year, genre, artworkUri, router, checkPerm]);
 
   if (!track) {
     return (
@@ -186,6 +245,29 @@ export default function EditTrackScreen() {
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 90 }]}
         keyboardShouldPersistTaps="handled"
       >
+        {/* Permission Notice Banner */}
+        {hasStoragePerm === false && (
+          <Pressable
+            onPress={async () => {
+              await requestStoragePermission();
+            }}
+            style={styles.permBanner}
+            accessibilityRole="button"
+            accessibilityLabel="Grant storage access permission"
+          >
+            <View style={styles.permBannerIcon}>
+              <Ionicons name="folder-open" size={20} color="#E5A93C" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.permBannerTitle}>Storage Access Required</Text>
+              <Text style={styles.permBannerSub}>
+                Allow Noir Music to edit physical audio tags on your device
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.secondary} />
+          </Pressable>
+        )}
+
         {/* Cover Photo Studio Hero */}
         <View style={styles.artworkSection}>
           <View style={styles.artworkWrapper}>
@@ -584,6 +666,39 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+
+  // Permission notice banner
+  permBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(229, 169, 60, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(229, 169, 60, 0.25)',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 20,
+  },
+  permBannerIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(229, 169, 60, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  permBannerTitle: {
+    color: '#E5A93C',
+    fontSize: 14,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+  },
+  permBannerSub: {
+    color: colors.secondary,
+    fontSize: 12,
+    marginTop: 2,
+    lineHeight: 16,
   },
 
   // Cover photo
