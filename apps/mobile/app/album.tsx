@@ -15,6 +15,7 @@ import {
   PlaylistPickerModal,
   CreatePlaylistModal,
   ToastBanner,
+  useTopInset,
   formatTotalDuration,
 } from '../src/ui';
 import { playTrack, toggleShuffle } from '../src/audio';
@@ -22,7 +23,7 @@ import { useMusic } from '../src/store';
 import type { Track } from '@noir/types';
 
 export default function Album() {
-  const insets = useSafeAreaInsets();
+  const topInset = useTopInset();
   const router = useRouter();
   const { group = '' } = useLocalSearchParams<{ group?: string }>();
   const tracks = useMusic((s) => s.tracks);
@@ -151,7 +152,7 @@ export default function Album() {
       <ToastBanner />
       <FlatList
         style={{ flex: 1 }}
-        contentContainerStyle={{ paddingHorizontal: 24, paddingTop: insets.top + 12, paddingBottom: 60 }}
+        contentContainerStyle={{ paddingHorizontal: 24, paddingTop: topInset + 16, paddingBottom: 60 }}
         data={items}
         keyExtractor={(t) => t.id}
         ListHeaderComponent={header}

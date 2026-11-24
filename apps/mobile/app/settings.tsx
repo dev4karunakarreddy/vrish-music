@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '@noir/theme';
-import { TopGradientFade } from '../src/TopGradientFade';
+import { TopGradientFade, useTopInset } from '../src/TopGradientFade';
 
 const backgroundPlayback = NativeModules.VrishMetadata as {
   requestBackgroundPlaybackExemption?: () => Promise<boolean>;
@@ -20,7 +20,7 @@ function SettingRow({icon,title,detail,onPress}:{icon:keyof typeof Ionicons.glyp
 
 export default function Settings() {
   const router = useRouter();
-  const insets = useSafeAreaInsets();
+  const topInset = useTopInset();
   const requestExemption = async () => {
     try {
       const opened = await backgroundPlayback?.requestBackgroundPlaybackExemption?.();
@@ -31,7 +31,7 @@ export default function Settings() {
   };
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 24, paddingTop: insets.top + 14, paddingBottom: 50 }}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 24, paddingTop: topInset + 16, paddingBottom: 50 }}>
         <Pressable
           onPress={() => router.back()}
           accessibilityRole="button"

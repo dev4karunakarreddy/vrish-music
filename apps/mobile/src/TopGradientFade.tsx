@@ -1,17 +1,22 @@
 import React from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, StyleSheet, Platform, StatusBar } from 'react-native';
 import Svg, { Defs, LinearGradient, Stop, Rect } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '@noir/theme';
+
+export function useTopInset(): number {
+  const insets = useSafeAreaInsets();
+  const androidStatus = Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) : 0;
+  return Math.max(insets.top, androidStatus, 32);
+}
 
 interface TopGradientFadeProps {
   height?: number;
 }
 
 export function TopGradientFade({ height }: TopGradientFadeProps) {
-  const insets = useSafeAreaInsets();
-  const topInset = Math.max(insets.top, 24);
-  const fadeHeight = height ?? topInset + 30;
+  const topInset = useTopInset();
+  const fadeHeight = height ?? topInset + 36;
   const solidRatio = Math.max(0.1, Math.min(topInset / fadeHeight, 0.7));
 
   return (

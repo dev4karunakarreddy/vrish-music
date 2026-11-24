@@ -23,6 +23,7 @@ import {
   PlaylistPickerModal,
   CreatePlaylistModal,
   ToastBanner,
+  useTopInset,
 } from '../../src/ui';
 import { useMusic } from '../../src/store';
 import { playTrack } from '../../src/audio';
@@ -31,7 +32,7 @@ import { groupArtists } from '../../src/artists';
 import type { Track } from '@noir/types';
 
 export default function Search() {
-  const insets = useSafeAreaInsets();
+  const topInset = useTopInset();
   const router = useRouter();
   const tracks = useMusic((s) => s.tracks);
   const [query, setQuery] = useState('');
@@ -192,7 +193,7 @@ export default function Search() {
       <ToastBanner />
       <FlatList
         style={{ flex: 1 }}
-        contentContainerStyle={{ paddingHorizontal: 24, paddingTop: insets.top + 16, paddingBottom: 130 }}
+        contentContainerStyle={{ paddingHorizontal: 24, paddingTop: topInset + 20, paddingBottom: 130 }}
         data={cleanQuery ? matchingSongs : []}
         keyExtractor={(t) => t.id}
         keyboardShouldPersistTaps="handled"

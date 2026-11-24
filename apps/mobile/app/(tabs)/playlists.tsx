@@ -23,6 +23,7 @@ import {
   PlaylistPickerModal,
   CreatePlaylistModal,
   ToastBanner,
+  useTopInset,
   formatTotalDuration,
 } from '../../src/ui';
 import { useMusic } from '../../src/store';
@@ -31,7 +32,7 @@ import { deletePlaylist, getPlaylistTracks, removeTrackFromPlaylist, renamePlayl
 import type { Playlist, Track } from '@noir/types';
 
 export default function Playlists() {
-  const insets = useSafeAreaInsets();
+  const topInset = useTopInset();
   const tracks = useMusic((s) => s.tracks);
   const playlists = useMusic((s) => s.playlists);
   const refresh = useMusic((s) => s.refresh);
@@ -121,7 +122,7 @@ export default function Playlists() {
         <ToastBanner />
         <FlatList
           style={{ flex: 1 }}
-          contentContainerStyle={{ paddingHorizontal: 24, paddingTop: insets.top + 16, paddingBottom: 130 }}
+          contentContainerStyle={{ paddingHorizontal: 24, paddingTop: topInset + 20, paddingBottom: 130 }}
           data={activeTracks}
           keyExtractor={(t, idx) => `${t.id}-${idx}`}
           ListHeaderComponent={
@@ -274,7 +275,7 @@ export default function Playlists() {
       <ToastBanner />
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={{ paddingHorizontal: 24, paddingTop: insets.top + 16, paddingBottom: 130 }}
+        contentContainerStyle={{ paddingHorizontal: 24, paddingTop: topInset + 20, paddingBottom: 130 }}
         showsVerticalScrollIndicator={false}
       >
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>

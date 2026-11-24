@@ -3,6 +3,7 @@ import { AppState } from 'react-native';
 import { Stack } from 'expo-router';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StatusBar } from 'expo-status-bar';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { colors } from '@noir/theme';
 import { refreshMissingMetadata } from '../src/metadata';
 import { removeShortImportedTracks, syncMusicFolders } from '../src/library';
@@ -29,21 +30,23 @@ export default function Root() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.background }}>
-      <StatusBar style="light" />
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          contentStyle: { backgroundColor: colors.background },
-          animation: 'fade',
-        }}
-      >
-        <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="player" options={{ presentation: 'modal' }} />
-        <Stack.Screen name="queue" />
-        <Stack.Screen name="album" options={{ headerShown: false }} />
-        <Stack.Screen name="settings" options={{ presentation: 'modal' }} />
-        <Stack.Screen name="edit-track" options={{ presentation: 'modal' }} />
-      </Stack>
+      <SafeAreaProvider>
+        <StatusBar style="light" />
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            contentStyle: { backgroundColor: colors.background },
+            animation: 'fade',
+          }}
+        >
+          <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="player" options={{ presentation: 'modal' }} />
+          <Stack.Screen name="queue" />
+          <Stack.Screen name="album" options={{ headerShown: false }} />
+          <Stack.Screen name="settings" options={{ presentation: 'modal' }} />
+          <Stack.Screen name="edit-track" options={{ presentation: 'modal' }} />
+        </Stack>
+      </SafeAreaProvider>
     </GestureHandlerRootView>
   );
 }

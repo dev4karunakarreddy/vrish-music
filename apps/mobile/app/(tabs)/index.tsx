@@ -14,6 +14,7 @@ import {
   PlaylistPickerModal,
   CreatePlaylistModal,
   ToastBanner,
+  useTopInset,
 } from '../../src/ui';
 import { useMusic } from '../../src/store';
 import { importAudioFiles } from '../../src/library';
@@ -21,7 +22,7 @@ import { playTrack, toggleShuffle } from '../../src/audio';
 import type { Track } from '@noir/types';
 
 export default function Home() {
-  const insets = useSafeAreaInsets();
+  const topInset = useTopInset();
   const router = useRouter();
   const tracks = useMusic((s) => s.tracks);
   const refresh = useMusic((s) => s.refresh);
@@ -64,7 +65,7 @@ export default function Home() {
       <ToastBanner />
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={{ padding: 24, paddingTop: insets.top + 16, paddingBottom: 130 }}
+        contentContainerStyle={{ padding: 24, paddingTop: topInset + 20, paddingBottom: 130 }}
         showsVerticalScrollIndicator={false}
       >
         {/* Top Header - Settings icon removed as requested */}

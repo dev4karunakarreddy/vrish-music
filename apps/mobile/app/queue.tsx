@@ -21,6 +21,7 @@ import {
   CreatePlaylistModal,
   ToastBanner,
   TopGradientFade,
+  useTopInset,
   formatDuration,
   formatTotalDuration,
 } from '../src/ui';
@@ -35,7 +36,7 @@ import {
 import type { Track } from '@noir/types';
 
 export default function Queue() {
-  const insets = useSafeAreaInsets();
+  const topInset = useTopInset();
   const router = useRouter();
   const tracks = useMusic((s) => s.tracks);
   const currentId = useMusic((s) => s.currentId);
@@ -138,7 +139,7 @@ export default function Queue() {
       <ToastBanner />
       <FlatList
         style={{ flex: 1 }}
-        contentContainerStyle={{ paddingHorizontal: 20, paddingTop: insets.top + 14, paddingBottom: 60 }}
+        contentContainerStyle={{ paddingHorizontal: 20, paddingTop: topInset + 16, paddingBottom: 60 }}
         data={items}
         keyExtractor={(t, idx) => `${t.id}-${idx}`}
         initialNumToRender={14}

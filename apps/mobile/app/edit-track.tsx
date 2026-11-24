@@ -27,11 +27,12 @@ import { colors } from '@noir/theme';
 import { useMusic } from '../src/store';
 import { pickArtworkImage, saveTrackEdits, revertTrackEdits } from '../src/tagEditor';
 import { formatDuration } from '../src/format';
-import { confirmDeleteTrack } from '../src/ui';
+import { confirmDeleteTrack, useTopInset } from '../src/ui';
 
 export default function EditTrackScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const topInset = useTopInset();
   const { trackId } = useLocalSearchParams<{ trackId: string }>();
 
   const tracks = useMusic((s) => s.tracks);
@@ -136,7 +137,7 @@ export default function EditTrackScreen() {
 
   if (!track) {
     return (
-      <View style={[styles.container, { paddingTop: insets.top + 20 }]}>
+      <View style={[styles.container, { paddingTop: topInset + 20 }]}>
         <Pressable onPress={() => router.back()} style={styles.closeBtn}>
           <Ionicons name="close" size={24} color="white" />
         </Pressable>
@@ -152,7 +153,7 @@ export default function EditTrackScreen() {
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      style={[styles.container, { paddingTop: insets.top + 8 }]}
+      style={[styles.container, { paddingTop: topInset + 8 }]}
     >
       {/* Top Header Bar */}
       <View style={styles.header}>

@@ -27,6 +27,7 @@ import {
   PlaylistPickerModal,
   CreatePlaylistModal,
   ToastBanner,
+  useTopInset,
 } from '../../src/ui';
 import { useMusic } from '../../src/store';
 import { importAudioFiles, removeShortImportedTracks, syncMusicFolders, checkFileExists } from '../../src/library';
@@ -35,7 +36,7 @@ import { playTrack, toggleShuffle } from '../../src/audio';
 import type { Track, SongSortMode, AlbumSortMode, ArtistSortMode, SortDirection } from '@noir/types';
 
 export default function Library() {
-  const insets = useSafeAreaInsets();
+  const topInset = useTopInset();
   const router = useRouter();
   const tracks = useMusic((s) => s.tracks);
   const refresh = useMusic((s) => s.refresh);
@@ -272,7 +273,7 @@ export default function Library() {
         <FlatList
           key="songs"
           style={{ flex: 1 }}
-          contentContainerStyle={{ paddingHorizontal: 24, paddingTop: insets.top + 16, paddingBottom: 130 }}
+          contentContainerStyle={{ paddingHorizontal: 24, paddingTop: topInset + 20, paddingBottom: 130 }}
           data={sortedTracks}
           keyExtractor={(t) => t.id}
           initialNumToRender={14}
@@ -310,7 +311,7 @@ export default function Library() {
         <FlatList
           key="albums"
           style={{ flex: 1 }}
-          contentContainerStyle={{ paddingHorizontal: 24, paddingTop: insets.top + 16, paddingBottom: 130 }}
+          contentContainerStyle={{ paddingHorizontal: 24, paddingTop: topInset + 20, paddingBottom: 130 }}
           data={sortedAlbums}
           keyExtractor={(a) => a.key}
           numColumns={2}
@@ -355,7 +356,7 @@ export default function Library() {
         <FlatList
           key="artists"
           style={{ flex: 1 }}
-          contentContainerStyle={{ paddingHorizontal: 24, paddingTop: insets.top + 16, paddingBottom: 130 }}
+          contentContainerStyle={{ paddingHorizontal: 24, paddingTop: topInset + 20, paddingBottom: 130 }}
           data={sortedArtists}
           keyExtractor={(a) => a.name}
           initialNumToRender={12}

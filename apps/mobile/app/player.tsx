@@ -19,6 +19,7 @@ import {
   PlaylistPickerModal,
   CreatePlaylistModal,
   ToastBanner,
+  useTopInset,
   formatDuration,
 } from '../src/ui';
 import { useMusic } from '../src/store';
@@ -28,6 +29,7 @@ import type { Track } from '@noir/types';
 
 export default function Player() {
   const insets = useSafeAreaInsets();
+  const topInset = useTopInset();
   const router = useRouter();
   const { width, height } = useWindowDimensions();
   const { tracks, currentId, playing, positionMs, durationMs, repeat, shuffle, queue, toggleFavorite } = useMusic();
@@ -74,7 +76,7 @@ export default function Player() {
 
   if (!track) {
     return (
-      <View style={{ flex: 1, backgroundColor: colors.background, padding: 24, paddingTop: insets.top + 16 }}>
+      <View style={{ flex: 1, backgroundColor: colors.background, padding: 24, paddingTop: topInset + 16 }}>
         <Pressable onPress={() => router.back()} style={{ padding: 10, alignSelf: 'flex-start' }}>
           <Ionicons name="chevron-down" size={28} color="white" />
         </Pressable>
@@ -84,7 +86,7 @@ export default function Player() {
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.background, paddingHorizontal: 28, paddingTop: insets.top + 12, paddingBottom: Math.max(insets.bottom, 24) + 12 }}>
+    <View style={{ flex: 1, backgroundColor: colors.background, paddingHorizontal: 28, paddingTop: topInset + 12, paddingBottom: Math.max(insets.bottom, 24) + 12 }}>
       <ToastBanner />
 
       {/* Top Header Bar */}
