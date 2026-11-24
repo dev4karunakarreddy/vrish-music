@@ -1,139 +1,5 @@
-import * as SQLite from 'expo-sqlite';
+import { NativeModules, Platform } from 'react-native';
 import type { Track, Playlist, RepeatMode } from '@noir/types';
-
-const db = SQLite.openDatabaseSync('noir.db');
-db.execSync(`PRAGMA journal_mode = WAL;
-CREATE TABLE IF NOT EXISTS tracks (
-  id TEXT PRIMARY KEY,
-  uri TEXT NOT NULL UNIQUE,
-  title TEXT NOT NULL,
-  artist TEXT NOT NULL,
-  album TEXT NOT NULL,
-  artwork_uri TEXT,
-  duration_ms INTEGER NOT NULL DEFAULT 0,
-  added_at INTEGER NOT NULL,
-  favorite INTEGER NOT NULL DEFAULT 0,
-  play_count INTEGER NOT NULL DEFAULT 0
-);`);
-
-try { db.execSync('ALTER TABLE tracks ADD COLUMN composer TEXT'); } catch { /* already migrated */ }
-try { db.execSync('ALTER TABLE tracks ADD COLUMN album_artist TEXT'); } catch { /* already migrated */ }
-try { db.execSync('ALTER TABLE tracks ADD COLUMN user_edited INTEGER DEFAULT 0'); } catch { /* already migrated */ }
-try { db.execSync('ALTER TABLE tracks ADD COLUMN year TEXT'); } catch { /* already migrated */ }
-try { db.execSync('ALTER TABLE tracks ADD COLUMN genre TEXT'); } catch { /* already migrated */ }
-db.execSync('CREATE TABLE IF NOT EXISTS playback_session (key TEXT PRIMARY KEY, value TEXT NOT NULL);');
-db.execSync('CREATE TABLE IF NOT EXISTS track_fingerprints (track_id TEXT PRIMARY KEY, sha256 TEXT NOT NULL UNIQUE);');
-db.execSync('CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);');
-db.execSync('CREATE TABLE IF NOT EXISTS track_sources (source_uri TEXT PRIMARY KEY, track_id TEXT NOT NULL);');
-
-db.execSync(`
-CREATE TABLE IF NOT EXISTS playlists (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  created_at INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS playlist_tracks (
-  id TEXT PRIMARY KEY,
-  playlist_id TEXT NOT NULL,
-  track_id TEXT NOT NULL,
-  position INTEGER NOT NULL,
-  added_at INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_playlist_tracks ON playlist_tracks (playlist_id, position);
-`);
-
-type Row = {
-  id: string;
-  uri: string;
-  title: string;
-  artist: string;
-  album: string;
-  album_artist: string | null;
-  composer: string | null;
-  artwork_uri: string | null;
-  duration_ms: number;
-  added_at: number;
-  favorite: number;
-  play_count: number;
-  user_edited: number | null;
-  year: string | null;
-  genre: string | null;
-};
-
-const map = (r: Row): Track => ({
-  id: r.id,
-  uri: r.uri,
-  title: r.title,
-  artist: r.artist,
-  album: r.album,
-  albumArtist: r.album_artist ?? undefined,
-  composer: r.composer ?? undefined,
-  artworkUri: r.artwork_uri ?? undefined,
-  durationMs: r.duration_ms,
-  addedAt: r.added_at,
-  favorite: !!r.favorite,
-  playCount: r.play_count,
-  userEdited: !!r.user_edited,
-  year: r.year ?? undefined,
-  genre: r.genre ?? undefined,
-});
-
-export function getTracks(): Track[] {
-  return db.getAllSync<Row>('SELECT * FROM tracks ORDER BY added_at DESC').map(map);
-}
-
-export function getTrackById(id: string): Track | null {
-  const row = db.getFirstSync<Row>('SELECT * FROM tracks WHERE id=?', id);
-  return row ? map(row) : null;
-}
-
-export function findTrackByUri(uri: string): Track | null {
-  const row = db.getFirstSync<Row>('SELECT * FROM tracks WHERE uri=?', uri);
-  return row ? map(row) : null;
-}
-
-export function saveTrack(t: Track): void {
-  db.runSync(
-    'INSERT OR REPLACE INTO tracks (id,uri,title,artist,album,album_artist,composer,artwork_uri,duration_ms,added_at,favorite,play_count,user_edited,year,genre) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-    t.id,
-    t.uri,
-    t.title,
-    t.artist,
-    t.album,
-    t.albumArtist ?? null,
-    t.composer ?? null,
-    t.artworkUri ?? null,
-    t.durationMs,
-    t.addedAt,
-    +t.favorite,
-    t.playCount,
-    t.userEdited ? 1 : 0,
-    t.year ?? null,
-    t.genre ?? null,
-  );
-}
-
-export function updateTrack(id: string, updates: Partial<Track>): Track | null {
-  const current = getTrackById(id);
-  if (!current) return null;
-  const merged: Track = {
-    ...current,
-    ...updates,
-    id: current.id,
-    uri: current.uri,
-    userEdited: updates.userEdited !== undefined ? updates.userEdited : true,
-  };
-  saveTrack(merged);
-  return merged;
-}
-
-export function setFavorite(id: string, value: boolean): void {
-  db.runSync('UPDATE tracks SET favorite=? WHERE id=?', +value, id);
-}
-
-export function incrementPlayCount(id: string): void {
-  db.runSync('UPDATE tracks SET play_count=play_count+1 WHERE id=?', id);
-}
 
 export interface SessionData {
   trackId: string;
@@ -143,6 +9,192 @@ export interface SessionData {
   repeat?: RepeatMode;
 }
 
+interface StoredPlaylist {
+  id: string;
+  name: string;
+  createdAt: number;
+  trackIds: string[];
+}
+
+interface StoreSchema {
+  version: number;
+  tracks: Record<string, Track>;
+  fingerprints: Record<string, string>; // sha256 -> track_id
+  sources: Record<string, string>; // uri -> track_id
+  playlists: Record<string, StoredPlaylist>;
+  session: SessionData | null;
+  settings: Record<string, string>;
+}
+
+const nativeMetadata = NativeModules.VrishMetadata as
+  | {
+      readStoreSync?(): string;
+      writeStoreSync?(json: string): boolean;
+      writeStoreAsync?(json: string): Promise<boolean>;
+    }
+  | undefined;
+
+const store: StoreSchema = {
+  version: 1,
+  tracks: {},
+  fingerprints: {},
+  sources: {},
+  playlists: {},
+  session: null,
+  settings: {},
+};
+
+const uriToId = new Map<string, string>();
+const fingerprintToId = new Map<string, string>();
+const idToFingerprint = new Map<string, string>();
+
+let initialized = false;
+
+export function initStore(): void {
+  if (initialized) return;
+  initialized = true;
+
+  try {
+    let raw = '';
+    if (Platform.OS === 'android' && nativeMetadata?.readStoreSync) {
+      raw = nativeMetadata.readStoreSync();
+    }
+    if (raw && raw.trim().length > 0) {
+      const parsed = JSON.parse(raw) as Partial<StoreSchema>;
+      if (parsed.tracks) store.tracks = parsed.tracks;
+      if (parsed.fingerprints) store.fingerprints = parsed.fingerprints;
+      if (parsed.sources) store.sources = parsed.sources;
+      if (parsed.playlists) store.playlists = parsed.playlists;
+      if (parsed.session) store.session = parsed.session;
+      if (parsed.settings) store.settings = parsed.settings;
+    }
+  } catch (error) {
+    console.warn('Failed to load store from disk:', error);
+  }
+
+  rebuildIndexes();
+}
+
+function rebuildIndexes(): void {
+  uriToId.clear();
+  fingerprintToId.clear();
+  idToFingerprint.clear();
+
+  for (const [id, track] of Object.entries(store.tracks)) {
+    if (track && track.uri) {
+      uriToId.set(track.uri, id);
+    }
+  }
+  for (const [hash, trackId] of Object.entries(store.fingerprints)) {
+    fingerprintToId.set(hash, trackId);
+    idToFingerprint.set(trackId, hash);
+  }
+}
+
+export function __resetStoreForTesting(initial?: Partial<StoreSchema>): void {
+  store.version = initial?.version ?? 1;
+  store.tracks = initial?.tracks ? { ...initial.tracks } : {};
+  store.fingerprints = initial?.fingerprints ? { ...initial.fingerprints } : {};
+  store.sources = initial?.sources ? { ...initial.sources } : {};
+  store.playlists = initial?.playlists ? { ...initial.playlists } : {};
+  store.session = initial?.session ?? null;
+  store.settings = initial?.settings ? { ...initial.settings } : {};
+  initialized = true;
+  rebuildIndexes();
+}
+
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
+
+export function flushStoreSync(): void {
+  if (persistTimer) {
+    clearTimeout(persistTimer);
+    persistTimer = null;
+  }
+  try {
+    const json = JSON.stringify(store);
+    if (Platform.OS === 'android' && nativeMetadata?.writeStoreSync) {
+      nativeMetadata.writeStoreSync(json);
+    }
+  } catch (e) {
+    console.warn('Failed to sync-flush store:', e);
+  }
+}
+
+function schedulePersist(): void {
+  if (persistTimer) return;
+  persistTimer = setTimeout(() => {
+    persistTimer = null;
+    try {
+      const json = JSON.stringify(store);
+      if (Platform.OS === 'android' && nativeMetadata?.writeStoreAsync) {
+        void nativeMetadata.writeStoreAsync(json);
+      } else if (Platform.OS === 'android' && nativeMetadata?.writeStoreSync) {
+        nativeMetadata.writeStoreSync(json);
+      }
+    } catch (e) {
+      console.warn('Failed to persist store:', e);
+    }
+  }, 200);
+}
+
+export function getTracks(): Track[] {
+  initStore();
+  return Object.values(store.tracks).sort((a, b) => b.addedAt - a.addedAt);
+}
+
+export function getTrackById(id: string): Track | null {
+  initStore();
+  return store.tracks[id] ?? null;
+}
+
+export function findTrackByUri(uri: string): Track | null {
+  initStore();
+  const id = uriToId.get(uri);
+  return id ? (store.tracks[id] ?? null) : null;
+}
+
+export function saveTrack(t: Track): void {
+  initStore();
+  store.tracks[t.id] = t;
+  if (t.uri) uriToId.set(t.uri, t.id);
+  schedulePersist();
+}
+
+export function updateTrack(id: string, updates: Partial<Track>): Track | null {
+  initStore();
+  const current = store.tracks[id];
+  if (!current) return null;
+  const merged: Track = {
+    ...current,
+    ...updates,
+    id: current.id,
+    uri: updates.uri ?? current.uri,
+    userEdited: updates.userEdited !== undefined ? updates.userEdited : true,
+  };
+  store.tracks[id] = merged;
+  if (merged.uri) uriToId.set(merged.uri, id);
+  schedulePersist();
+  return merged;
+}
+
+export function setFavorite(id: string, value: boolean): void {
+  initStore();
+  const track = store.tracks[id];
+  if (track) {
+    track.favorite = value;
+    schedulePersist();
+  }
+}
+
+export function incrementPlayCount(id: string): void {
+  initStore();
+  const track = store.tracks[id];
+  if (track) {
+    track.playCount = (track.playCount || 0) + 1;
+    schedulePersist();
+  }
+}
+
 export function saveSession(
   trackId: string,
   positionMs: number,
@@ -150,144 +202,161 @@ export function saveSession(
   shuffle?: boolean,
   repeat?: RepeatMode,
 ): void {
-  const current = getSession();
-  const data: SessionData = {
+  initStore();
+  const current = store.session;
+  store.session = {
     trackId,
     positionMs,
     queue: queue ?? current?.queue,
     shuffle: shuffle !== undefined ? shuffle : current?.shuffle,
     repeat: repeat ?? current?.repeat,
   };
-  db.runSync('INSERT OR REPLACE INTO playback_session (key,value) VALUES (?,?)', 'last', JSON.stringify(data));
+  schedulePersist();
 }
 
 export function getSession(): SessionData | null {
-  const row = db.getFirstSync<{ value: string }>('SELECT value FROM playback_session WHERE key=?', 'last');
-  if (!row) return null;
-  try {
-    return JSON.parse(row.value);
-  } catch {
-    return null;
-  }
+  initStore();
+  return store.session;
 }
 
 export function findTrackByFingerprint(hash: string): string | null {
-  return db.getFirstSync<{ track_id: string }>('SELECT track_id FROM track_fingerprints WHERE sha256=?', hash)?.track_id ?? null;
+  initStore();
+  return fingerprintToId.get(hash) ?? null;
 }
 
 export function saveTrackFingerprint(id: string, hash: string): void {
-  db.runSync('INSERT OR IGNORE INTO track_fingerprints (track_id,sha256) VALUES (?,?)', id, hash);
-}
-
-export function findTrackBySource(uri: string): string | null {
-  return db.getFirstSync<{ track_id: string }>('SELECT track_id FROM track_sources WHERE source_uri=?', uri)?.track_id ?? null;
-}
-
-export function saveTrackSource(id: string, uri: string): void {
-  db.runSync('INSERT OR REPLACE INTO track_sources (source_uri,track_id) VALUES (?,?)', uri, id);
-}
-
-export function tracksWithoutFingerprint(): Track[] {
-  return db.getAllSync<Row>(
-    'SELECT tracks.* FROM tracks LEFT JOIN track_fingerprints ON tracks.id=track_fingerprints.track_id WHERE track_fingerprints.track_id IS NULL',
-  ).map(map);
-}
-
-export function getSetting(key: string): string | null {
-  return db.getFirstSync<{ value: string }>('SELECT value FROM app_settings WHERE key=?', key)?.value ?? null;
-}
-
-export function setSetting(key: string, value: string): void {
-  db.runSync('INSERT OR REPLACE INTO app_settings (key,value) VALUES (?,?)', key, value);
-}
-
-export function deleteTrack(id: string): void {
-  db.runSync('DELETE FROM track_fingerprints WHERE track_id=?', id);
-  db.runSync('DELETE FROM track_sources WHERE track_id=?', id);
-  db.runSync('DELETE FROM playlist_tracks WHERE track_id=?', id);
-  db.runSync('DELETE FROM tracks WHERE id=?', id);
+  initStore();
+  store.fingerprints[hash] = id;
+  fingerprintToId.set(hash, id);
+  idToFingerprint.set(id, hash);
+  schedulePersist();
 }
 
 export function getTrackFingerprint(id: string): string | null {
-  return db.getFirstSync<{ sha256: string }>('SELECT sha256 FROM track_fingerprints WHERE track_id=?', id)?.sha256 ?? null;
+  initStore();
+  return idToFingerprint.get(id) ?? null;
 }
 
-// --- PLAYLIST FUNCTIONS ---
+export function findTrackBySource(uri: string): string | null {
+  initStore();
+  return store.sources[uri] ?? null;
+}
+
+export function saveTrackSource(id: string, uri: string): void {
+  initStore();
+  store.sources[uri] = id;
+  schedulePersist();
+}
+
+export function tracksWithoutFingerprint(): Track[] {
+  initStore();
+  return Object.values(store.tracks).filter((t) => !idToFingerprint.has(t.id));
+}
+
+export function getSetting(key: string): string | null {
+  initStore();
+  return store.settings[key] ?? null;
+}
+
+export function setSetting(key: string, value: string): void {
+  initStore();
+  store.settings[key] = value;
+  schedulePersist();
+}
+
+export function deleteTrack(id: string): void {
+  initStore();
+  const track = store.tracks[id];
+  if (track?.uri) uriToId.delete(track.uri);
+  const hash = idToFingerprint.get(id);
+  if (hash) {
+    fingerprintToId.delete(hash);
+    delete store.fingerprints[hash];
+  }
+  idToFingerprint.delete(id);
+  delete store.tracks[id];
+
+  for (const [src, tid] of Object.entries(store.sources)) {
+    if (tid === id) delete store.sources[src];
+  }
+
+  for (const pl of Object.values(store.playlists)) {
+    pl.trackIds = pl.trackIds.filter((tId) => tId !== id);
+  }
+
+  schedulePersist();
+}
 
 export function getPlaylists(): Playlist[] {
-  const rows = db.getAllSync<{ id: string; name: string; created_at: number }>('SELECT * FROM playlists ORDER BY created_at DESC');
-  return rows.map((p) => {
-    const trackRows = db.getAllSync<{ track_id: string }>(
-      'SELECT track_id FROM playlist_tracks WHERE playlist_id=? ORDER BY position ASC',
-      p.id,
-    );
-    return {
+  initStore();
+  return Object.values(store.playlists)
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .map((p) => ({
       id: p.id,
       name: p.name,
-      createdAt: p.created_at,
-      trackCount: trackRows.length,
-      trackIds: trackRows.map((tr) => tr.track_id),
-    };
-  });
+      createdAt: p.createdAt,
+      trackCount: p.trackIds.length,
+      trackIds: [...p.trackIds],
+    }));
 }
 
 export function createPlaylist(name: string): Playlist {
+  initStore();
   const id = `pl-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   const now = Date.now();
-  db.runSync('INSERT INTO playlists (id, name, created_at) VALUES (?, ?, ?)', id, name.trim() || 'New Playlist', now);
-  return { id, name: name.trim() || 'New Playlist', createdAt: now, trackCount: 0, trackIds: [] };
+  const pl: StoredPlaylist = {
+    id,
+    name: name.trim() || 'New Playlist',
+    createdAt: now,
+    trackIds: [],
+  };
+  store.playlists[id] = pl;
+  schedulePersist();
+  return { id, name: pl.name, createdAt: now, trackCount: 0, trackIds: [] };
 }
 
 export function renamePlaylist(id: string, name: string): void {
-  db.runSync('UPDATE playlists SET name=? WHERE id=?', name.trim() || 'Untitled Playlist', id);
+  initStore();
+  const pl = store.playlists[id];
+  if (pl) {
+    pl.name = name.trim() || 'Untitled Playlist';
+    schedulePersist();
+  }
 }
 
 export function deletePlaylist(id: string): void {
-  db.runSync('DELETE FROM playlist_tracks WHERE playlist_id=?', id);
-  db.runSync('DELETE FROM playlists WHERE id=?', id);
+  initStore();
+  delete store.playlists[id];
+  schedulePersist();
 }
 
 export function getPlaylistTracks(playlistId: string): Track[] {
-  const rows = db.getAllSync<Row>(
-    `SELECT tracks.* FROM playlist_tracks
-     JOIN tracks ON playlist_tracks.track_id = tracks.id
-     WHERE playlist_tracks.playlist_id = ?
-     ORDER BY playlist_tracks.position ASC`,
-    playlistId,
-  );
-  return rows.map(map);
+  initStore();
+  const pl = store.playlists[playlistId];
+  if (!pl) return [];
+  return pl.trackIds
+    .map((tid) => store.tracks[tid])
+    .filter((t): t is Track => !!t);
 }
 
 export function addTrackToPlaylist(playlistId: string, trackId: string): boolean {
-  const maxPosRow = db.getFirstSync<{ max_pos: number | null }>(
-    'SELECT MAX(position) as max_pos FROM playlist_tracks WHERE playlist_id=?',
-    playlistId,
-  );
-  const nextPos = (maxPosRow?.max_pos ?? -1) + 1;
-  const id = `pt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-  db.runSync(
-    'INSERT INTO playlist_tracks (id, playlist_id, track_id, position, added_at) VALUES (?, ?, ?, ?, ?)',
-    id,
-    playlistId,
-    trackId,
-    nextPos,
-    Date.now(),
-  );
+  initStore();
+  const pl = store.playlists[playlistId];
+  if (!pl) return false;
+  pl.trackIds.push(trackId);
+  schedulePersist();
   return true;
 }
 
 export function removeTrackFromPlaylist(playlistId: string, trackId: string, position?: number): void {
-  if (position !== undefined) {
-    db.runSync('DELETE FROM playlist_tracks WHERE playlist_id=? AND track_id=? AND position=?', playlistId, trackId, position);
+  initStore();
+  const pl = store.playlists[playlistId];
+  if (!pl) return;
+  if (position !== undefined && position >= 0 && position < pl.trackIds.length) {
+    pl.trackIds.splice(position, 1);
   } else {
-    // Delete first occurrence
-    const first = db.getFirstSync<{ id: string }>(
-      'SELECT id FROM playlist_tracks WHERE playlist_id=? AND track_id=? ORDER BY position ASC LIMIT 1',
-      playlistId,
-      trackId,
-    );
-    if (first) {
-      db.runSync('DELETE FROM playlist_tracks WHERE id=?', first.id);
-    }
+    const idx = pl.trackIds.indexOf(trackId);
+    if (idx >= 0) pl.trackIds.splice(idx, 1);
   }
+  schedulePersist();
 }

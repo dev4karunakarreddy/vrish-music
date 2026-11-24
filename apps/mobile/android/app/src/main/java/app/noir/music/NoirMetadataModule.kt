@@ -2,6 +2,7 @@ package app.noir.music
 
 import android.content.Context
 import android.content.Intent
+import android.database.sqlite.SQLiteDatabase
 import android.media.MediaMetadataRetriever
 import android.media.MediaScannerConnection
 import android.net.Uri
@@ -21,6 +22,8 @@ import java.io.FileOutputStream
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.util.concurrent.Executors
+import org.json.JSONArray
+import org.json.JSONObject
 
 class VrishMetadataModule(private val context: ReactApplicationContext) : ReactContextBaseJavaModule(context) {
   private val executor = Executors.newSingleThreadExecutor()
@@ -410,6 +413,193 @@ class VrishMetadataModule(private val context: ReactApplicationContext) : ReactC
       } catch (e: Exception) {
         promise.reject("DELETE_ERROR", "Could not delete audio file", e)
       }
+    }
+  }
+
+  @ReactMethod(isBlockingSynchronousMethod = true)
+  fun readStoreSync(): String {
+    try {
+      val jsonFile = File(context.filesDir, "vrish_store.json")
+      if (jsonFile.exists()) {
+        return jsonFile.readText(StandardCharsets.UTF_8)
+      }
+
+      val dbFile = context.getDatabasePath("noir.db")
+      if (dbFile != null && dbFile.exists()) {
+        val migrated = migrateFromSqlite(dbFile)
+        if (migrated.isNotEmpty()) {
+          jsonFile.writeText(migrated, StandardCharsets.UTF_8)
+          return migrated
+        }
+      }
+    } catch (e: Exception) {
+      // Return empty string on error
+    }
+    return ""
+  }
+
+  @ReactMethod(isBlockingSynchronousMethod = true)
+  fun writeStoreSync(json: String): Boolean {
+    return try {
+      val temp = File(context.filesDir, "vrish_store.tmp")
+      temp.writeText(json, StandardCharsets.UTF_8)
+      val dest = File(context.filesDir, "vrish_store.json")
+      if (!temp.renameTo(dest)) {
+        temp.copyTo(dest, overwrite = true)
+        temp.delete()
+      }
+      true
+    } catch (e: Exception) {
+      false
+    }
+  }
+
+  @ReactMethod
+  fun writeStoreAsync(json: String, promise: Promise) {
+    executor.execute {
+      try {
+        val temp = File(context.filesDir, "vrish_store.tmp")
+        temp.writeText(json, StandardCharsets.UTF_8)
+        val dest = File(context.filesDir, "vrish_store.json")
+        if (!temp.renameTo(dest)) {
+          temp.copyTo(dest, overwrite = true)
+          temp.delete()
+        }
+        promise.resolve(true)
+      } catch (e: Exception) {
+        promise.reject("WRITE_STORE_ERROR", "Failed to write store", e)
+      }
+    }
+  }
+
+  private fun migrateFromSqlite(dbFile: File): String {
+    var db: SQLiteDatabase? = null
+    try {
+      db = SQLiteDatabase.openDatabase(
+        dbFile.path,
+        null,
+        SQLiteDatabase.OPEN_READONLY
+      )
+      val root = JSONObject()
+      root.put("version", 1)
+
+      // 1. Tracks
+      val tracksObj = JSONObject()
+      try {
+        val cTracks = db.rawQuery("SELECT * FROM tracks", null)
+        cTracks.use { c ->
+          val idCol = c.getColumnIndex("id")
+          val uriCol = c.getColumnIndex("uri")
+          val titleCol = c.getColumnIndex("title")
+          val artistCol = c.getColumnIndex("artist")
+          val albumCol = c.getColumnIndex("album")
+          val albumArtistCol = c.getColumnIndex("album_artist")
+          val composerCol = c.getColumnIndex("composer")
+          val artCol = c.getColumnIndex("artwork_uri")
+          val durCol = c.getColumnIndex("duration_ms")
+          val addedCol = c.getColumnIndex("added_at")
+          val favCol = c.getColumnIndex("favorite")
+          val playCol = c.getColumnIndex("play_count")
+          val userEditedCol = c.getColumnIndex("user_edited")
+          val yearCol = c.getColumnIndex("year")
+          val genreCol = c.getColumnIndex("genre")
+
+          while (c.moveToNext()) {
+            val t = JSONObject()
+            val id = c.getString(idCol)
+            t.put("id", id)
+            t.put("uri", c.getString(uriCol))
+            t.put("title", c.getString(titleCol))
+            t.put("artist", c.getString(artistCol))
+            t.put("album", c.getString(albumCol))
+            if (albumArtistCol >= 0 && !c.isNull(albumArtistCol)) t.put("albumArtist", c.getString(albumArtistCol))
+            if (composerCol >= 0 && !c.isNull(composerCol)) t.put("composer", c.getString(composerCol))
+            if (artCol >= 0 && !c.isNull(artCol)) t.put("artworkUri", c.getString(artCol))
+            t.put("durationMs", c.getLong(durCol))
+            t.put("addedAt", c.getLong(addedCol))
+            t.put("favorite", c.getInt(favCol) != 0)
+            t.put("playCount", c.getInt(playCol))
+            if (userEditedCol >= 0 && !c.isNull(userEditedCol)) t.put("userEdited", c.getInt(userEditedCol) != 0)
+            if (yearCol >= 0 && !c.isNull(yearCol)) t.put("year", c.getString(yearCol))
+            if (genreCol >= 0 && !c.isNull(genreCol)) t.put("genre", c.getString(genreCol))
+            tracksObj.put(id, t)
+          }
+        }
+      } catch (e: Exception) {}
+      root.put("tracks", tracksObj)
+
+      // 2. Playlists
+      val playlistsObj = JSONObject()
+      try {
+        val cPl = db.rawQuery("SELECT * FROM playlists", null)
+        cPl.use { c ->
+          val idCol = c.getColumnIndex("id")
+          val nameCol = c.getColumnIndex("name")
+          val createdCol = c.getColumnIndex("created_at")
+          while (c.moveToNext()) {
+            val p = JSONObject()
+            val plId = c.getString(idCol)
+            p.put("id", plId)
+            p.put("name", c.getString(nameCol))
+            p.put("createdAt", c.getLong(createdCol))
+
+            val trIds = JSONArray()
+            try {
+              val cPlTr = db.rawQuery("SELECT track_id FROM playlist_tracks WHERE playlist_id=? ORDER BY position ASC", arrayOf(plId))
+              cPlTr.use { ctr ->
+                while (ctr.moveToNext()) {
+                  trIds.put(ctr.getString(0))
+                }
+              }
+            } catch (e: Exception) {}
+            p.put("trackIds", trIds)
+            playlistsObj.put(plId, p)
+          }
+        }
+      } catch (e: Exception) {}
+      root.put("playlists", playlistsObj)
+
+      // 3. Session
+      try {
+        val cSession = db.rawQuery("SELECT value FROM playback_session WHERE key='last'", null)
+        cSession.use { c ->
+          if (c.moveToNext()) {
+            try {
+              root.put("session", JSONObject(c.getString(0)))
+            } catch (e: Exception) {}
+          }
+        }
+      } catch (e: Exception) {}
+
+      // 4. Settings
+      val settingsObj = JSONObject()
+      try {
+        val cSettings = db.rawQuery("SELECT key, value FROM app_settings", null)
+        cSettings.use { c ->
+          while (c.moveToNext()) {
+            settingsObj.put(c.getString(0), c.getString(1))
+          }
+        }
+      } catch (e: Exception) {}
+      root.put("settings", settingsObj)
+
+      // 5. Fingerprints
+      val fingerprintsObj = JSONObject()
+      try {
+        val cFp = db.rawQuery("SELECT track_id, sha256 FROM track_fingerprints", null)
+        cFp.use { c ->
+          while (c.moveToNext()) {
+            fingerprintsObj.put(c.getString(1), c.getString(0))
+          }
+        }
+      } catch (e: Exception) {}
+      root.put("fingerprints", fingerprintsObj)
+
+      return root.toString()
+    } catch (e: Exception) {
+      return ""
+    } finally {
+      db?.close()
     }
   }
 }
