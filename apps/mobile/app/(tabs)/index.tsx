@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { ScrollView, View, Text, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '@noir/theme';
 import {
   Artwork,
@@ -20,6 +21,7 @@ import { playTrack, toggleShuffle } from '../../src/audio';
 import type { Track } from '@noir/types';
 
 export default function Home() {
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const tracks = useMusic((s) => s.tracks);
   const refresh = useMusic((s) => s.refresh);
@@ -58,11 +60,11 @@ export default function Home() {
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.background }}>
+    <View style={{ flex: 1, backgroundColor: colors.background, paddingTop: insets.top }}>
       <ToastBanner />
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={{ padding: 24, paddingTop: 62, paddingBottom: 130 }}
+        contentContainerStyle={{ padding: 24, paddingTop: 16, paddingBottom: 130 }}
         showsVerticalScrollIndicator={false}
       >
         {/* Top Header - Settings icon removed as requested */}

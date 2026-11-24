@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { FlatList, Pressable, Text, View, TouchableOpacity } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '@noir/theme';
 import { groupAlbums, cleanAlbumTitle } from '../src/albums';
@@ -20,6 +21,7 @@ import { useMusic } from '../src/store';
 import type { Track } from '@noir/types';
 
 export default function Album() {
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const { group = '' } = useLocalSearchParams<{ group?: string }>();
   const tracks = useMusic((s) => s.tracks);
@@ -144,11 +146,11 @@ export default function Album() {
   );
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.background }}>
+    <View style={{ flex: 1, backgroundColor: colors.background, paddingTop: insets.top }}>
       <ToastBanner />
       <FlatList
         style={{ flex: 1 }}
-        contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 42, paddingBottom: 60 }}
+        contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 12, paddingBottom: 60 }}
         data={items}
         keyExtractor={(t) => t.id}
         ListHeaderComponent={header}

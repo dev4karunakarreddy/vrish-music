@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { File } from 'expo-file-system';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '@noir/theme';
 import { groupAlbums, type AlbumGroup } from '../../src/albums';
@@ -34,6 +35,7 @@ import { playTrack, toggleShuffle } from '../../src/audio';
 import type { Track, SongSortMode, AlbumSortMode, ArtistSortMode, SortDirection } from '@noir/types';
 
 export default function Library() {
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const tracks = useMusic((s) => s.tracks);
   const refresh = useMusic((s) => s.refresh);
@@ -263,14 +265,14 @@ export default function Library() {
   );
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.background }}>
+    <View style={{ flex: 1, backgroundColor: colors.background, paddingTop: insets.top }}>
       <ToastBanner />
 
       {view === 'Songs' && (
         <FlatList
           key="songs"
           style={{ flex: 1 }}
-          contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 62, paddingBottom: 130 }}
+          contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 16, paddingBottom: 130 }}
           data={sortedTracks}
           keyExtractor={(t) => t.id}
           initialNumToRender={14}
@@ -308,7 +310,7 @@ export default function Library() {
         <FlatList
           key="albums"
           style={{ flex: 1 }}
-          contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 62, paddingBottom: 130 }}
+          contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 16, paddingBottom: 130 }}
           data={sortedAlbums}
           keyExtractor={(a) => a.key}
           numColumns={2}
@@ -353,7 +355,7 @@ export default function Library() {
         <FlatList
           key="artists"
           style={{ flex: 1 }}
-          contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 62, paddingBottom: 130 }}
+          contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 16, paddingBottom: 130 }}
           data={sortedArtists}
           keyExtractor={(a) => a.name}
           initialNumToRender={12}

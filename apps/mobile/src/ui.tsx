@@ -19,6 +19,7 @@ import { removeTrack } from './library';
 import { useMusic } from './store';
 import { addTrackToPlaylist, createPlaylist, deletePlaylist, renamePlaylist } from './db';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { formatDuration, formatTotalDuration } from './format';
 export { formatDuration, formatTotalDuration } from './format';
@@ -156,10 +157,11 @@ export function Heading({ eyebrow, title }: { eyebrow?: string; title: string })
 }
 
 export function ToastBanner() {
+  const insets = useSafeAreaInsets();
   const toast = useMusic((s) => s.toast);
   if (!toast) return null;
   return (
-    <View pointerEvents="none" style={styles.toastContainer}>
+    <View pointerEvents="none" style={[styles.toastContainer, { top: insets.top + 12 }]}>
       <View style={styles.toast}>
         <Ionicons name="checkmark-circle" size={16} color="white" style={{ marginRight: 8 }} />
         <Text style={styles.toastText} numberOfLines={1}>

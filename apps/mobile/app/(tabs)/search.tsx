@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '@noir/theme';
 import {
   Artwork,
@@ -30,6 +31,7 @@ import { groupArtists } from '../../src/artists';
 import type { Track } from '@noir/types';
 
 export default function Search() {
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const tracks = useMusic((s) => s.tracks);
   const [query, setQuery] = useState('');
@@ -186,11 +188,11 @@ export default function Search() {
   );
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.background }}>
+    <View style={{ flex: 1, backgroundColor: colors.background, paddingTop: insets.top }}>
       <ToastBanner />
       <FlatList
         style={{ flex: 1 }}
-        contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 62, paddingBottom: 130 }}
+        contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 16, paddingBottom: 130 }}
         data={cleanQuery ? matchingSongs : []}
         keyExtractor={(t) => t.id}
         keyboardShouldPersistTaps="handled"

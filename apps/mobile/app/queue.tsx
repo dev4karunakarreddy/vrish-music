@@ -9,6 +9,7 @@ import {
   Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '@noir/theme';
 import {
@@ -33,6 +34,7 @@ import {
 import type { Track } from '@noir/types';
 
 export default function Queue() {
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const tracks = useMusic((s) => s.tracks);
   const currentId = useMusic((s) => s.currentId);
@@ -131,11 +133,11 @@ export default function Queue() {
   );
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.background }}>
+    <View style={{ flex: 1, backgroundColor: colors.background, paddingTop: insets.top }}>
       <ToastBanner />
       <FlatList
         style={{ flex: 1 }}
-        contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 52, paddingBottom: 60 }}
+        contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 14, paddingBottom: 60 }}
         data={items}
         keyExtractor={(t, idx) => `${t.id}-${idx}`}
         initialNumToRender={14}
