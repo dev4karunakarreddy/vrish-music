@@ -60,11 +60,11 @@ export default function Home() {
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.background, paddingTop: insets.top }}>
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
       <ToastBanner />
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={{ padding: 24, paddingTop: 16, paddingBottom: 130 }}
+        contentContainerStyle={{ padding: 24, paddingTop: insets.top + 16, paddingBottom: 130 }}
         showsVerticalScrollIndicator={false}
       >
         {/* Top Header - Settings icon removed as requested */}

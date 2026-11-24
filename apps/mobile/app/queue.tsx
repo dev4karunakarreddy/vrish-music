@@ -20,6 +20,7 @@ import {
   PlaylistPickerModal,
   CreatePlaylistModal,
   ToastBanner,
+  TopGradientFade,
   formatDuration,
   formatTotalDuration,
 } from '../src/ui';
@@ -133,11 +134,11 @@ export default function Queue() {
   );
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.background, paddingTop: insets.top }}>
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
       <ToastBanner />
       <FlatList
         style={{ flex: 1 }}
-        contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 14, paddingBottom: 60 }}
+        contentContainerStyle={{ paddingHorizontal: 20, paddingTop: insets.top + 14, paddingBottom: 60 }}
         data={items}
         keyExtractor={(t, idx) => `${t.id}-${idx}`}
         initialNumToRender={14}
@@ -249,6 +250,7 @@ export default function Queue() {
           <Empty title="Queue is empty" detail="Choose a song from your collection to start listening." />
         }
       />
+      <TopGradientFade />
 
       {/* Modals */}
       <TrackMenuModal

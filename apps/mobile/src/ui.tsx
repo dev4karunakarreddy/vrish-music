@@ -23,6 +23,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { formatDuration, formatTotalDuration } from './format';
 export { formatDuration, formatTotalDuration } from './format';
+export { TopGradientFade } from './TopGradientFade';
 
 export function Artwork({ track, size = 56 }: { track?: Track; size?: number }) {
   const radius = Math.max(4, Math.round(size * 0.1));

@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '@noir/theme';
 import { MiniPlayer } from '../../src/MiniPlayer';
+import { TopGradientFade } from '../../src/TopGradientFade';
 
 export default function TabLayout() {
   const insets = useSafeAreaInsets();
@@ -58,6 +59,7 @@ export default function TabLayout() {
           }}
         />
       </Tabs>
+      <TopGradientFade />
       <View style={{ position: 'absolute', bottom: tabHeight + 8, left: 0, right: 0 }} pointerEvents="box-none">
         <MiniPlayer />
       </View>

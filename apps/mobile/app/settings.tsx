@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '@noir/theme';
+import { TopGradientFade } from '../src/TopGradientFade';
 
 const backgroundPlayback = NativeModules.VrishMetadata as {
   requestBackgroundPlaybackExemption?: () => Promise<boolean>;
@@ -29,8 +30,8 @@ export default function Settings() {
     }
   };
   return (
-    <View style={{ flex: 1, backgroundColor: colors.background, paddingTop: insets.top }}>
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 24, paddingTop: 14, paddingBottom: 50 }}>
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 24, paddingTop: insets.top + 14, paddingBottom: 50 }}>
         <Pressable
           onPress={() => router.back()}
           accessibilityRole="button"
@@ -67,6 +68,7 @@ export default function Settings() {
           OnePlus may apply additional background limits. Keep VRISH’s playback notification active while music is playing.
         </Text>
       </ScrollView>
+      <TopGradientFade />
     </View>
   );
 }

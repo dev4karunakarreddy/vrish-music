@@ -265,14 +265,14 @@ export default function Library() {
   );
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.background, paddingTop: insets.top }}>
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
       <ToastBanner />
 
       {view === 'Songs' && (
         <FlatList
           key="songs"
           style={{ flex: 1 }}
-          contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 16, paddingBottom: 130 }}
+          contentContainerStyle={{ paddingHorizontal: 24, paddingTop: insets.top + 16, paddingBottom: 130 }}
           data={sortedTracks}
           keyExtractor={(t) => t.id}
           initialNumToRender={14}
@@ -310,7 +310,7 @@ export default function Library() {
         <FlatList
           key="albums"
           style={{ flex: 1 }}
-          contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 16, paddingBottom: 130 }}
+          contentContainerStyle={{ paddingHorizontal: 24, paddingTop: insets.top + 16, paddingBottom: 130 }}
           data={sortedAlbums}
           keyExtractor={(a) => a.key}
           numColumns={2}
@@ -355,7 +355,7 @@ export default function Library() {
         <FlatList
           key="artists"
           style={{ flex: 1 }}
-          contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 16, paddingBottom: 130 }}
+          contentContainerStyle={{ paddingHorizontal: 24, paddingTop: insets.top + 16, paddingBottom: 130 }}
           data={sortedArtists}
           keyExtractor={(a) => a.name}
           initialNumToRender={12}

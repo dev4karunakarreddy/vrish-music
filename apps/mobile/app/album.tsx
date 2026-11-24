@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '@noir/theme';
 import { groupAlbums, cleanAlbumTitle } from '../src/albums';
+import { TopGradientFade } from '../src/TopGradientFade';
 import {
   Artwork,
   Empty,
@@ -146,11 +147,11 @@ export default function Album() {
   );
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.background, paddingTop: insets.top }}>
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
       <ToastBanner />
       <FlatList
         style={{ flex: 1 }}
-        contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 12, paddingBottom: 60 }}
+        contentContainerStyle={{ paddingHorizontal: 24, paddingTop: insets.top + 12, paddingBottom: 60 }}
         data={items}
         keyExtractor={(t) => t.id}
         ListHeaderComponent={header}
@@ -166,6 +167,7 @@ export default function Album() {
           <Empty title="Album not found" detail="This album may have been removed from your library." />
         }
       />
+      <TopGradientFade />
 
       {/* Modals */}
       <TrackMenuModal
